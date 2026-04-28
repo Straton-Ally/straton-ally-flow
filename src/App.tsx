@@ -10,6 +10,8 @@ import { PWAInstallPrompt } from "@/components/ui/pwa-install-prompt";
 
 // Pages
 import Login from "./pages/Login";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
 
 // Admin Pages
@@ -55,6 +57,8 @@ const App = () => (
           <Routes>
             {/* Public routes */}
             <Route path="/login" element={<Login />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/" element={<Navigate to="/login" replace />} />
 
             {/* Admin routes */}

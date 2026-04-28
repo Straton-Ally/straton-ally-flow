@@ -14,6 +14,7 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const PASSWORD_RESET_PATH = '/reset-password';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -34,8 +35,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, newSession) => {
         setSession(newSession);
+
+        if (event === 'PASSWORD_RECOVERY') {
+          navigate(PASSWORD_RESET_PATH, { replace: true });
+          setIsLoading(false);
+          return;
+        }
         
         if (event === 'SIGNED_IN' && newSession && !skipRedirect) {
+          if (location.pathname === PASSWORD_RESET_PATH) {
+            setIsLoading(false);
+            return;
+          }
+
           // Use setTimeout to prevent state update conflicts
           setTimeout(async () => {
             const authUser = await fetchUser();

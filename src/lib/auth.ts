@@ -35,6 +35,35 @@ export async function signIn(email: string, password: string): Promise<{ user: U
   return { user: data.user, error: null };
 }
 
+export async function requestPasswordReset(email: string): Promise<{ error: string | null }> {
+  if (!isAllowedEmail(email)) {
+    return { error: `Only ${ALLOWED_DOMAIN} email addresses are allowed` };
+  }
+
+  const redirectTo = `${window.location.origin}/reset-password`;
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo,
+  });
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  return { error: null };
+}
+
+export async function updatePassword(password: string): Promise<{ error: string | null }> {
+  const { error } = await supabase.auth.updateUser({
+    password,
+  });
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  return { error: null };
+}
+
 export async function signOut(): Promise<void> {
   await supabase.auth.signOut();
 }

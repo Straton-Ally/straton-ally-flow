@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -137,9 +137,14 @@ export default function Login() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-sm font-medium">
-                  Password
-                </Label>
+                <div className="flex items-center justify-between gap-4">
+                  <Label htmlFor="password" className="text-sm font-medium">
+                    Password
+                  </Label>
+                  <Link to="/forgot-password" className="text-sm font-medium text-accent hover:text-accent/80">
+                    Forgot password?
+                  </Link>
+                </div>
                 <div className="relative">
                   <Input id="password" type={showPassword ? 'text' : 'password'} placeholder="••••••••" {...register('password')} className="h-12 bg-secondary/50 border-border focus:border-accent focus:ring-accent/20 pr-10" disabled={isLoading} onFocus={() => setIsTyping(true)} onBlur={() => setIsTyping(false)} />
                   <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors" tabIndex={-1}>
