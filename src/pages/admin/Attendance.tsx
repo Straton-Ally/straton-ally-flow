@@ -82,6 +82,19 @@ interface EarlyCheckoutRequestRow {
   employee?: { employee_id: string; full_name?: string };
 }
 
+interface OvertimeRequestRow {
+  id: string;
+  attendance_id: string;
+  employee_id: string;
+  date: string;
+  reason: string;
+  status: 'pending' | 'approved' | 'declined';
+  requested_at: string;
+  reviewed_at?: string | null;
+  response_notes?: string | null;
+  employee?: { employee_id: string; full_name?: string };
+}
+
 export default function Attendance() {
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -100,7 +113,9 @@ export default function Attendance() {
     timeTo: '',
   });
   const [earlyRequests, setEarlyRequests] = useState<EarlyCheckoutRequestRow[]>([]);
+  const [overtimeRequests, setOvertimeRequests] = useState<OvertimeRequestRow[]>([]);
   const [reviewModal, setReviewModal] = useState<{ id: string; employeeName: string; reason: string; time: string } | null>(null);
+  const [overtimeReviewModal, setOvertimeReviewModal] = useState<{ id: string; employeeName: string; reason: string } | null>(null);
   const [reviewNotes, setReviewNotes] = useState('');
   const [reviewAction, setReviewAction] = useState<'approve' | 'decline' | null>(null);
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
@@ -445,6 +460,42 @@ export default function Attendance() {
     }
   };
 
+  const fetchOvertimeRequests = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('attendance_overtime_requests')
+        .select('id, attendance_id, employee_id, date, reason, status, requested_at, reviewed_at, response_notes')
+        .eq('date', selectedDate)
+        .order('requested_at', { ascending: false });
+
+      if (error) throw error;
+
+      if (data?.length) {
+        const withNames = await Promise.all(
+          (data as OvertimeRequestRow[]).map(async (row) => {
+            const { data: emp } = await supabase
+              .from('employees')
+              .select('id, employee_id, user_id')
+              .eq('id', row.employee_id)
+              .single();
+            if (!emp) return { ...row, employee: { employee_id: '', full_name: 'Unknown' } };
+            const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', emp.user_id).single();
+            return {
+              ...row,
+              employee: { employee_id: emp.employee_id, full_name: profile?.full_name ?? 'Unknown' },
+            };
+          }),
+        );
+        setOvertimeRequests(withNames);
+      } else {
+        setOvertimeRequests([]);
+      }
+    } catch (e) {
+      console.error('Error fetching overtime requests:', e);
+      setOvertimeRequests([]);
+    }
+  };
+
   const openReview = (req: EarlyCheckoutRequestRow, action: 'approve' | 'decline') => {
     setReviewModal({
       id: req.id,
@@ -493,8 +544,57 @@ export default function Attendance() {
     }
   };
 
+  const openOvertimeReview = (req: OvertimeRequestRow, action: 'approve' | 'decline') => {
+    setOvertimeReviewModal({
+      id: req.id,
+      employeeName: req.employee?.full_name ?? 'Unknown',
+      reason: req.reason,
+    });
+    setReviewAction(action);
+    setReviewNotes('');
+  };
+
+  const submitOvertimeReview = async () => {
+    if (!overtimeReviewModal || !reviewAction) return;
+    setReviewSubmitting(true);
+    try {
+      const { data: user } = await supabase.auth.getUser();
+      const { error } = await supabase
+        .from('attendance_overtime_requests')
+        .update({
+          status: reviewAction === 'approve' ? 'approved' : 'declined',
+          reviewed_at: new Date().toISOString(),
+          reviewed_by: user.user?.id ?? null,
+          response_notes: reviewNotes.trim() || null,
+        })
+        .eq('id', overtimeReviewModal.id);
+
+      if (error) throw error;
+      toast({
+        title: reviewAction === 'approve' ? 'OT approved' : 'OT declined',
+        description: reviewAction === 'approve'
+          ? 'The employee can stay checked in and check out when finished.'
+          : 'The employee has been notified. Auto checkout will apply if they are past the grace period.',
+      });
+      setOvertimeReviewModal(null);
+      setReviewAction(null);
+      setReviewNotes('');
+      await fetchOvertimeRequests();
+      await fetchAttendance();
+    } catch (e) {
+      toast({
+        title: 'Error',
+        description: e instanceof Error ? e.message : 'Failed to update OT request',
+        variant: 'destructive',
+      });
+    } finally {
+      setReviewSubmitting(false);
+    }
+  };
+
   useEffect(() => {
     fetchEarlyCheckoutRequests();
+    fetchOvertimeRequests();
   }, [selectedDate]);
 
   /** Compare two time strings "HH:mm:ss" or "HH:mm". Returns -1 if a < b, 0 if equal, 1 if a > b */
@@ -747,6 +847,104 @@ export default function Attendance() {
                           <p className="text-sm text-muted-foreground">
                             {req.employee?.employee_id} · {format(new Date(req.date), 'MMM d, yyyy')} · Leave at {formatTime12h(req.requested_checkout_time)}
                           </p>
+                          <p className="text-sm mt-1">{req.reason}</p>
+                          {req.reviewed_at && (
+                            <p className="text-xs text-muted-foreground mt-2">
+                              Reviewed {format(new Date(req.reviewed_at), 'MMM d, yyyy h:mm a')}
+                              {req.response_notes ? ` · ${req.response_notes}` : ''}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            );
+          })()}
+        </CardContent>
+      </Card>
+
+      {/* Overtime requests */}
+      <Card className="card-elevated">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Clock className="h-5 w-5" />
+            Overtime requests
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Employees who choose "I am working overtime" stay checked in while the request is pending. Declined requests return to auto checkout.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {(() => {
+            const pending = overtimeRequests.filter((r) => r.status === 'pending');
+            const approved = overtimeRequests.filter((r) => r.status === 'approved');
+            const declined = overtimeRequests.filter((r) => r.status === 'declined');
+            return (
+              <>
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground mb-2">Pending</h3>
+                  {pending.length === 0 ? (
+                    <p className="text-muted-foreground text-sm">No pending OT requests.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {pending.map((req) => (
+                        <div key={req.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+                          <div className="min-w-0">
+                            <p className="font-medium">{req.employee?.full_name ?? 'Unknown'}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {req.employee?.employee_id} · {format(new Date(req.date), 'MMM d, yyyy')} · Requested {format(new Date(req.requested_at), 'h:mm a')}
+                            </p>
+                            <p className="text-sm mt-1">{req.reason}</p>
+                          </div>
+                          <div className="flex gap-2 shrink-0">
+                            <Button size="sm" variant="default" className="bg-green-600 hover:bg-green-700" onClick={() => openOvertimeReview(req, 'approve')}>
+                              <Check className="h-4 w-4 mr-1" />
+                              Approve
+                            </Button>
+                            <Button size="sm" variant="destructive" onClick={() => openOvertimeReview(req, 'decline')}>
+                              <X className="h-4 w-4 mr-1" />
+                              Decline
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground mb-2">Approved</h3>
+                  {approved.length === 0 ? (
+                    <p className="text-muted-foreground text-sm">None.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {approved.map((req) => (
+                        <div key={req.id} className="rounded-lg border p-3">
+                          <p className="font-medium">{req.employee?.full_name ?? 'Unknown'}</p>
+                          <p className="text-sm text-muted-foreground">{req.employee?.employee_id} · {format(new Date(req.date), 'MMM d, yyyy')}</p>
+                          <p className="text-sm mt-1">{req.reason}</p>
+                          {req.reviewed_at && (
+                            <p className="text-xs text-muted-foreground mt-2">
+                              Reviewed {format(new Date(req.reviewed_at), 'MMM d, yyyy h:mm a')}
+                              {req.response_notes ? ` · ${req.response_notes}` : ''}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground mb-2">Declined</h3>
+                  {declined.length === 0 ? (
+                    <p className="text-muted-foreground text-sm">None.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {declined.map((req) => (
+                        <div key={req.id} className="rounded-lg border p-3">
+                          <p className="font-medium">{req.employee?.full_name ?? 'Unknown'}</p>
+                          <p className="text-sm text-muted-foreground">{req.employee?.employee_id} · {format(new Date(req.date), 'MMM d, yyyy')}</p>
                           <p className="text-sm mt-1">{req.reason}</p>
                           {req.reviewed_at && (
                             <p className="text-xs text-muted-foreground mt-2">
@@ -1073,6 +1271,44 @@ export default function Attendance() {
                   variant={reviewAction === 'decline' ? 'destructive' : 'default'}
                   className={reviewAction === 'approve' ? 'bg-green-600 hover:bg-green-700' : ''}
                   onClick={submitReview}
+                  disabled={reviewSubmitting}
+                >
+                  {reviewSubmitting ? 'Saving...' : reviewAction === 'approve' ? 'Approve' : 'Decline'}
+                </Button>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!overtimeReviewModal} onOpenChange={(open) => !open && setOvertimeReviewModal(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{reviewAction === 'approve' ? 'Approve' : 'Decline'} overtime</DialogTitle>
+          </DialogHeader>
+          {overtimeReviewModal && (
+            <>
+              <p className="text-sm">
+                <span className="font-medium">{overtimeReviewModal.employeeName}</span> requested overtime approval.
+              </p>
+              <p className="text-sm text-muted-foreground">Reason: {overtimeReviewModal.reason}</p>
+              <div className="space-y-2">
+                <Label>{reviewAction === 'decline' ? 'Decline reason' : 'Response notes'} (optional)</Label>
+                <Textarea
+                  placeholder={reviewAction === 'decline' ? 'e.g. Coverage is not approved today' : 'e.g. Approved for production release'}
+                  value={reviewNotes}
+                  onChange={(e) => setReviewNotes(e.target.value)}
+                  rows={2}
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setOvertimeReviewModal(null)} disabled={reviewSubmitting}>
+                  Cancel
+                </Button>
+                <Button
+                  variant={reviewAction === 'decline' ? 'destructive' : 'default'}
+                  className={reviewAction === 'approve' ? 'bg-green-600 hover:bg-green-700' : ''}
+                  onClick={submitOvertimeReview}
                   disabled={reviewSubmitting}
                 >
                   {reviewSubmitting ? 'Saving...' : reviewAction === 'approve' ? 'Approve' : 'Decline'}

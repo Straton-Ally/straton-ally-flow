@@ -50,6 +50,9 @@ interface AttendanceRecord {
   check_in_uk_time: string | null;
   check_out_uk_time: string | null;
   total_work_minutes: number | null;
+  expected_check_out_at: string | null;
+  checkout_reminder_sent_at: string | null;
+  auto_checked_out_at: string | null;
   status: 'present' | 'absent' | 'half_day' | 'leave';
   notes: string | null;
   created_at: string;
@@ -131,6 +134,12 @@ export function AttendanceSystem() {
   const [earlyRequestReason, setEarlyRequestReason] = useState('');
   const [earlyRequestTime, setEarlyRequestTime] = useState('');
   const [earlyRequestSubmitting, setEarlyRequestSubmitting] = useState(false);
+  const [overtimeRequest, setOvertimeRequest] = useState<{
+    id: string;
+    status: 'pending' | 'approved' | 'declined';
+    response_notes: string | null;
+  } | null>(null);
+  const [overtimeSubmitting, setOvertimeSubmitting] = useState(false);
   const [attendanceTimeZones, setAttendanceTimeZones] = useState<AttendanceTimeZone[]>([]);
   const [selectedTimeZoneId, setSelectedTimeZoneId] = useState('');
   const [isRefreshingLocation, setIsRefreshingLocation] = useState(false);
@@ -521,7 +530,7 @@ export function AttendanceSystem() {
       const { data: attendanceData } = await supabase
         .from('attendance')
         .select(
-          'id,date,in_time,out_time,break_duration,break_start_at,break_total_minutes,status,notes,created_at,employee_id,check_in_at,check_out_at,check_in_ip,check_out_ip,check_in_location,check_out_location,total_work_minutes,attendance_time_zone_id,attendance_time_zone_name,attendance_time_zone,check_in_local_time,check_out_local_time,check_in_uk_time,check_out_uk_time',
+          'id,date,in_time,out_time,break_duration,break_start_at,break_total_minutes,status,notes,created_at,employee_id,check_in_at,check_out_at,check_in_ip,check_out_ip,check_in_location,check_out_location,total_work_minutes,expected_check_out_at,checkout_reminder_sent_at,auto_checked_out_at,attendance_time_zone_id,attendance_time_zone_name,attendance_time_zone,check_in_local_time,check_out_local_time,check_in_uk_time,check_out_uk_time',
         )
         .eq('employee_id', effectiveEmployeeId)
         .eq('date', today)
@@ -557,6 +566,9 @@ export function AttendanceSystem() {
           check_in_uk_time: attendanceData.check_in_uk_time,
           check_out_uk_time: attendanceData.check_out_uk_time,
           total_work_minutes: attendanceData.total_work_minutes,
+          expected_check_out_at: attendanceData.expected_check_out_at,
+          checkout_reminder_sent_at: attendanceData.checkout_reminder_sent_at,
+          auto_checked_out_at: attendanceData.auto_checked_out_at,
           status: attendanceData.status as 'present' | 'absent' | 'half_day' | 'leave',
           notes: attendanceData.notes,
           created_at: attendanceData.created_at,
@@ -564,6 +576,25 @@ export function AttendanceSystem() {
         });
       } else {
         setAttendance(null);
+      }
+
+      if (attendanceData?.id) {
+        const { data: otData } = await supabase
+          .from('attendance_overtime_requests')
+          .select('id,status,response_notes')
+          .eq('attendance_id', attendanceData.id)
+          .maybeSingle();
+        setOvertimeRequest(
+          otData
+            ? {
+                id: otData.id,
+                status: otData.status as 'pending' | 'approved' | 'declined',
+                response_notes: otData.response_notes,
+              }
+            : null,
+        );
+      } else {
+        setOvertimeRequest(null);
       }
 
       // Fetch all of today's early checkout requests (latest first) for badge and 3-per-day limit
@@ -801,6 +832,9 @@ export function AttendanceSystem() {
           check_in_uk_time: data.check_in_uk_time,
           check_out_uk_time: data.check_out_uk_time,
           total_work_minutes: data.total_work_minutes,
+          expected_check_out_at: data.expected_check_out_at,
+          checkout_reminder_sent_at: data.checkout_reminder_sent_at,
+          auto_checked_out_at: data.auto_checked_out_at,
           status: data.status as 'present' | 'absent' | 'half_day' | 'leave',
           notes: data.notes,
           created_at: data.created_at,
@@ -1022,6 +1056,33 @@ export function AttendanceSystem() {
       });
     } finally {
       setEarlyRequestSubmitting(false);
+    }
+  };
+
+  const handleSubmitOvertimeRequest = async () => {
+    if (!attendance?.id) return;
+    setOvertimeSubmitting(true);
+    try {
+      const { error } = await (supabase as unknown as {
+        rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: Error | null }>;
+      }).rpc('submit_overtime_request', {
+        _attendance_id: attendance.id,
+        _reason: 'Working overtime',
+      });
+      if (error) throw error;
+      toast({
+        title: 'OT request submitted',
+        description: 'OT request submitted to Team Lead/Supervisor.',
+      });
+      await fetchTodayAttendance(employeeId ?? undefined);
+    } catch (e) {
+      toast({
+        title: 'Error',
+        description: getErrorMessage(e) || 'Failed to submit OT request.',
+        variant: 'destructive',
+      });
+    } finally {
+      setOvertimeSubmitting(false);
     }
   };
 
@@ -1263,6 +1324,11 @@ export function AttendanceSystem() {
                 )}
               </div>
             )}
+            {attendance?.auto_checked_out_at && (
+              <div className="col-span-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                You were auto checked out after missing your scheduled checkout.
+              </div>
+            )}
           </div>
 
           {/* Action Buttons */}
@@ -1351,6 +1417,40 @@ export function AttendanceSystem() {
                       Request again
                     </Button>
                   </>
+                )}
+                {attendance?.in_time && !attendance?.out_time && !overtimeRequest && (
+                  <Button
+                    variant="outline"
+                    onClick={handleSubmitOvertimeRequest}
+                    disabled={overtimeSubmitting}
+                    className="flex items-center gap-2"
+                  >
+                    <Clock className="h-4 w-4" />
+                    I am working overtime
+                  </Button>
+                )}
+                {attendance?.in_time && !attendance?.out_time && overtimeRequest && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {overtimeRequest.status === 'pending' && (
+                      <Badge variant="secondary">OT request pending Team Lead/Supervisor approval</Badge>
+                    )}
+                    {overtimeRequest.status === 'approved' && (
+                      <Badge variant="default" className="bg-green-600">OT approved</Badge>
+                    )}
+                    {overtimeRequest.status === 'declined' && (
+                      <>
+                        <Badge variant="destructive">OT declined</Badge>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleSubmitOvertimeRequest}
+                          disabled={overtimeSubmitting}
+                        >
+                          Request OT again
+                        </Button>
+                      </>
+                    )}
+                  </div>
                 )}
               </>
             )}

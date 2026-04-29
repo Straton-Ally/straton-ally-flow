@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, Check, AtSign, MessageSquare, Trash2, Loader2, ArrowUpRight } from 'lucide-react';
+import { Bell, Check, AtSign, MessageSquare, Trash2, Loader2, ArrowUpRight, Clock, AlarmClock, Timer, ShieldCheck, ShieldX } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -11,7 +11,15 @@ import { formatDistanceToNow } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
-type WorkNotificationType = 'mention' | 'message';
+type WorkNotificationType =
+  | 'mention'
+  | 'message'
+  | 'attendance_checkout_reminder'
+  | 'attendance_auto_checkout'
+  | 'overtime_request'
+  | 'overtime_approved'
+  | 'overtime_declined'
+  | 'early_checkout_response';
 
 interface WorkNotification {
   id: string;
@@ -23,6 +31,8 @@ interface WorkNotification {
   type: WorkNotificationType;
   title: string;
   body: string | null;
+  action_url: string | null;
+  metadata: Record<string, unknown>;
   is_read: boolean;
   created_at: string;
 }
@@ -37,6 +47,31 @@ interface ChannelLite {
   id: string;
   name: string;
 }
+
+const notificationTypes: WorkNotificationType[] = [
+  'mention',
+  'message',
+  'attendance_checkout_reminder',
+  'attendance_auto_checkout',
+  'overtime_request',
+  'overtime_approved',
+  'overtime_declined',
+  'early_checkout_response',
+];
+
+const normalizeNotificationType = (type: string): WorkNotificationType =>
+  notificationTypes.includes(type as WorkNotificationType) ? (type as WorkNotificationType) : 'message';
+
+const notificationTypeLabels: Record<WorkNotificationType, string> = {
+  mention: 'Mention',
+  message: 'Message',
+  attendance_checkout_reminder: 'Checkout reminder',
+  attendance_auto_checkout: 'Auto checkout',
+  overtime_request: 'Overtime request',
+  overtime_approved: 'Overtime approved',
+  overtime_declined: 'Overtime declined',
+  early_checkout_response: 'Early checkout',
+};
 
 export function Notifications() {
   const navigate = useNavigate();
@@ -85,8 +120,22 @@ export function Notifications() {
         return <AtSign className="h-4 w-4 text-blue-600" />;
       case 'message':
         return <MessageSquare className="h-4 w-4 text-green-600" />;
+      case 'attendance_checkout_reminder':
+        return <AlarmClock className="h-4 w-4 text-amber-600" />;
+      case 'attendance_auto_checkout':
+        return <Clock className="h-4 w-4 text-red-600" />;
+      case 'overtime_request':
+        return <Timer className="h-4 w-4 text-purple-600" />;
+      case 'overtime_approved':
+        return <ShieldCheck className="h-4 w-4 text-green-600" />;
+      case 'overtime_declined':
+        return <ShieldX className="h-4 w-4 text-red-600" />;
+      case 'early_checkout_response':
+        return <LogOutIconCompat />;
     }
   };
+
+  const LogOutIconCompat = () => <Clock className="h-4 w-4 text-blue-600" />;
 
   const filteredNotifications = useMemo(() => {
     return notifications.filter((notification) => {
@@ -140,7 +189,7 @@ export function Notifications() {
       setLoading(true);
       const { data, error } = await supabase
         .from('work_notifications')
-        .select('id,user_id,actor_id,office_id,channel_id,message_id,type,title,body,is_read,created_at')
+        .select('id,user_id,actor_id,office_id,channel_id,message_id,type,title,body,action_url,metadata,is_read,created_at')
         .order('created_at', { ascending: false })
         .limit(200);
 
@@ -152,7 +201,8 @@ export function Notifications() {
 
       const rows = ((data || []) as unknown as WorkNotification[]).map((r) => ({
         ...r,
-        type: (r.type === 'mention' ? 'mention' : 'message') as WorkNotificationType,
+        type: normalizeNotificationType(r.type),
+        metadata: r.metadata ?? {},
       }));
 
       setNotifications(rows);
@@ -171,7 +221,8 @@ export function Notifications() {
           const row = payload.new as unknown as WorkNotification;
           const normalized: WorkNotification = {
             ...row,
-            type: (row.type === 'mention' ? 'mention' : 'message') as WorkNotificationType,
+            type: normalizeNotificationType(row.type),
+            metadata: row.metadata ?? {},
           };
           setNotifications((prev) => [normalized, ...prev]);
           await hydrateRelated([normalized]);
@@ -236,6 +287,10 @@ export function Notifications() {
 
   const openNotification = async (notification: WorkNotification) => {
     if (!notification.is_read) await handleMarkAsRead(notification.id);
+    if (notification.action_url) {
+      navigate(notification.action_url);
+      return;
+    }
     if (notification.office_id && notification.channel_id) {
       navigate(`/work/${notification.office_id}/channel/${notification.channel_id}`);
       return;
@@ -271,7 +326,7 @@ export function Notifications() {
               {!notification.is_read && (
                 <div className="w-2 h-2 bg-blue-500 rounded-full" />
               )}
-              <Badge variant="secondary">{notification.type}</Badge>
+              <Badge variant="secondary">{notificationTypeLabels[notification.type]}</Badge>
             </div>
             
             <p className="text-sm text-muted-foreground mb-2">
@@ -378,6 +433,12 @@ export function Notifications() {
             <SelectItem value="all">All Types</SelectItem>
             <SelectItem value="mention">Mentions</SelectItem>
             <SelectItem value="message">Messages</SelectItem>
+            <SelectItem value="attendance_checkout_reminder">Checkout reminders</SelectItem>
+            <SelectItem value="attendance_auto_checkout">Auto checkout</SelectItem>
+            <SelectItem value="overtime_request">Overtime requests</SelectItem>
+            <SelectItem value="overtime_approved">Overtime approved</SelectItem>
+            <SelectItem value="overtime_declined">Overtime declined</SelectItem>
+            <SelectItem value="early_checkout_response">Early checkout</SelectItem>
           </SelectContent>
         </Select>
         

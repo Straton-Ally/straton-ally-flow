@@ -3,6 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { AuthUser, getCurrentUser, getRedirectPath } from '@/lib/auth';
 import type { Session } from '@supabase/supabase-js';
+import { toast } from '@/hooks/use-toast';
+import { ToastAction } from '@/components/ui/toast';
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -87,24 +89,66 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userId = session?.user?.id;
     if (!userId) return;
 
+    const playNotificationSound = () => {
+      try {
+        const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!AudioContextClass) return;
+        const audioContext = new AudioContextClass();
+        const oscillator = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.value = 880;
+        gain.gain.setValueAtTime(0.0001, audioContext.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.18, audioContext.currentTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 0.4);
+        oscillator.connect(gain);
+        gain.connect(audioContext.destination);
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.42);
+      } catch {
+        // Sound is best effort; browsers may block it until the user interacts with the page.
+      }
+    };
+
+    const submitOvertimeRequest = async (attendanceId?: string) => {
+      if (!attendanceId) {
+        window.location.href = '/employee/attendance';
+        return;
+      }
+
+      const { error } = await (supabase as unknown as {
+        rpc: (fn: string, args: Record<string, unknown>) => Promise<{ error: Error | null }>;
+      }).rpc('submit_overtime_request', {
+        _attendance_id: attendanceId,
+        _reason: 'Working overtime',
+      });
+
+      if (error) {
+        toast({
+          title: 'Overtime request failed',
+          description: error.message,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      toast({
+        title: 'OT request submitted',
+        description: 'OT request submitted to Team Lead/Supervisor.',
+      });
+    };
+
     const channel = supabase
       .channel(`work_notifications_popup:${userId}`)
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'work_notifications', filter: `user_id=eq.${userId}` },
         (payload) => {
-          const canNotify =
-            typeof window !== 'undefined' &&
-            typeof Notification !== 'undefined' &&
-            Notification.permission === 'granted';
-
-          if (!canNotify) return;
+          if (typeof window === 'undefined') return;
 
           const isFocused =
             typeof document !== 'undefined' &&
             (document.visibilityState === 'visible' && (typeof document.hasFocus !== 'function' || document.hasFocus()));
-
-          if (isFocused) return;
 
           const row = payload.new as unknown as {
             id?: string;
@@ -112,10 +156,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             body?: string | null;
             office_id?: string | null;
             channel_id?: string | null;
+            type?: string;
+            action_url?: string | null;
+            metadata?: { attendance_id?: string } | null;
           };
 
           const url =
-            row.office_id && row.channel_id ? `/work/${row.office_id}/channel/${row.channel_id}` : '/work';
+            row.action_url ||
+            (row.office_id && row.channel_id ? `/work/${row.office_id}/channel/${row.channel_id}` : '/work');
+
+          playNotificationSound();
+
+          if (row.type === 'attendance_checkout_reminder') {
+            toast({
+              title: row.title || 'Checkout reminder',
+              description: row.body || 'Your scheduled checkout is almost due.',
+              action: (
+                <ToastAction altText="Request overtime" onClick={() => submitOvertimeRequest(row.metadata?.attendance_id)}>
+                  I am working overtime
+                </ToastAction>
+              ),
+            });
+          } else if (isFocused) {
+            toast({
+              title: row.title || 'Notification',
+              description: row.body || undefined,
+            });
+          }
+
+          const canNotify =
+            typeof Notification !== 'undefined' &&
+            Notification.permission === 'granted' &&
+            !isFocused;
+
+          if (!canNotify) return;
 
           const notification = new Notification(row.title || 'Notification', {
             body: row.body || undefined,
