@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/utils/supabase";
 import type { User } from "@supabase/supabase-js";
 
 export type AppRole = 'admin' | 'employee';

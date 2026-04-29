@@ -1,5 +1,6 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Search, Bell, MessageSquare, LogOut, Sparkles } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Search, Bell, MessageSquare, LogOut } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -14,6 +15,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { signOut } from '@/lib/auth';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
 
 const navItems = [
   { label: 'Overview', href: '/admin/dashboard' },
@@ -29,6 +31,35 @@ export function TopNav() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const firstName = user?.fullName?.split(' ')[0] || 'User';
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const refreshUnreadCount = async () => {
+      const { count } = await supabase
+        .from('work_notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('is_read', false);
+      setUnreadNotifications(count ?? 0);
+    };
+
+    refreshUnreadCount();
+
+    const realtime = supabase
+      .channel(`admin_work_notifications_badge:${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'work_notifications', filter: `user_id=eq.${user.id}` },
+        () => refreshUnreadCount(),
+      )
+      .subscribe();
+
+    return () => {
+      realtime.unsubscribe();
+    };
+  }, [user?.id]);
 
   const handleLogout = async () => {
     await signOut();
@@ -87,9 +118,17 @@ export function TopNav() {
             <MessageSquare className="h-4 w-4" />
           </Button>
 
-          <Button variant="ghost" size="icon" className="h-8 w-8 relative">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 relative"
+            onClick={() => navigate('/admin/notifications')}
+            title="Notifications"
+          >
             <Bell className="h-4 w-4" />
-            <span className="absolute top-1 right-1 w-2 h-2 bg-success rounded-full" />
+            {unreadNotifications > 0 ? (
+              <span className="absolute top-1 right-1 w-2 h-2 bg-success rounded-full" />
+            ) : null}
           </Button>
 
           <ThemeToggle />

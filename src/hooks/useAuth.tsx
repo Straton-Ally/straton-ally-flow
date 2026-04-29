@@ -191,19 +191,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           if (!canNotify) return;
 
-          const notification = new Notification(row.title || 'Notification', {
-            body: row.body || undefined,
-            tag: row.id,
-            data: { url },
-          });
+          void (async () => {
+            const registration = await navigator.serviceWorker?.getRegistration();
+            const pushSubscription = await registration?.pushManager?.getSubscription?.();
 
-          notification.onclick = () => {
-            notification.close();
-            window.focus();
-            window.location.href = url;
-          };
+            if (pushSubscription) {
+              return;
+            }
 
-          window.setTimeout(() => notification.close(), 8000);
+            if (registration) {
+              await registration.showNotification(row.title || 'Notification', {
+                body: row.body || undefined,
+                tag: row.id,
+                data: { url },
+              });
+              return;
+            }
+
+            const notification = new Notification(row.title || 'Notification', {
+              body: row.body || undefined,
+              tag: row.id,
+              data: { url },
+            });
+
+            notification.onclick = () => {
+              notification.close();
+              window.focus();
+              window.location.href = url;
+            };
+
+            window.setTimeout(() => notification.close(), 8000);
+          })();
         }
       )
       .subscribe();

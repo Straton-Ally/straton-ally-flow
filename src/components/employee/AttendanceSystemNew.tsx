@@ -181,6 +181,46 @@ export function AttendanceSystem() {
     })();
   }, []);
 
+  useEffect(() => {
+    if (!employeeId) return;
+
+    const today = getDateInTimeZone(new Date(), UK_TIME_ZONE);
+    const refresh = () => {
+      void fetchTodayAttendance(employeeId);
+    };
+
+    const attendanceChannel = supabase
+      .channel(`attendance-live:${employeeId}:${today}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'attendance', filter: `employee_id=eq.${employeeId}` },
+        (payload) => {
+          const next = payload.new as { date?: string } | null;
+          const prev = payload.old as { date?: string } | null;
+          if (next?.date === today || prev?.date === today) refresh();
+        },
+      )
+      .subscribe();
+
+    const overtimeChannel = supabase
+      .channel(`attendance-overtime-live:${employeeId}:${today}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'attendance_overtime_requests', filter: `employee_id=eq.${employeeId}` },
+        (payload) => {
+          const next = payload.new as { date?: string } | null;
+          const prev = payload.old as { date?: string } | null;
+          if (next?.date === today || prev?.date === today) refresh();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      attendanceChannel.unsubscribe();
+      overtimeChannel.unsubscribe();
+    };
+  }, [employeeId]);
+
   const getErrorMessage = (error: unknown) => {
     if (error && typeof error === 'object' && 'message' in error) {
       return String((error as { message: unknown }).message);

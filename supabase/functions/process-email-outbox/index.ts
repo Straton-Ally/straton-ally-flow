@@ -14,9 +14,14 @@ Deno.serve(async (req) => {
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   const resendApiKey = Deno.env.get('RESEND_API_KEY');
   const fromEmail = Deno.env.get('ATTENDANCE_EMAIL_FROM') ?? 'Flow <no-reply@example.com>';
+  const internalSecret = Deno.env.get('EDGE_INTERNAL_SECRET');
 
   if (!supabaseUrl || !serviceRoleKey) {
     return Response.json({ error: 'Missing Supabase service configuration' }, { status: 500, headers: corsHeaders });
+  }
+
+  if (internalSecret && req.headers.get('x-internal-secret') !== internalSecret) {
+    return Response.json({ error: 'Forbidden' }, { status: 403, headers: corsHeaders });
   }
 
   if (!resendApiKey) {

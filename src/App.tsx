@@ -2,6 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "@/hooks/useAuth";
@@ -28,6 +29,7 @@ import Settings from "./pages/admin/Settings";
 import Recruitment from "./pages/admin/Recruitment";
 import WorkManagement from "./pages/admin/WorkManagement";
 import Logs from "./pages/admin/Logs";
+import AdminNotificationsPage from "./pages/admin/Notifications";
 
 // Employee Pages
 import { EmployeeLayoutNew } from "./components/layout/EmployeeLayoutNew";
@@ -46,16 +48,26 @@ import WorkPage from "./pages/work/WorkPage";
 
 const queryClient = new QueryClient();
 
+function ServiceWorkerRegistration() {
+  useEffect(() => {
+    if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+    void navigator.serviceWorker.register("/sw.js");
+  }, []);
+
+  return null;
+}
+
 const App = () => (
   <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <PWAInstallPrompt />
-      <BrowserRouter>
-        <AuthProvider>
-          <Routes>
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <PWAInstallPrompt />
+        <ServiceWorkerRegistration />
+        <BrowserRouter>
+          <AuthProvider>
+            <Routes>
             {/* Public routes */}
             <Route path="/login" element={<Login />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
@@ -85,6 +97,7 @@ const App = () => (
               <Route path="recruitment" element={<Recruitment />} />
               <Route path="work" element={<WorkManagement />} />
               <Route path="logs" element={<Logs />} />
+              <Route path="notifications" element={<AdminNotificationsPage />} />
             </Route>
 
             {/* Employee routes */}
@@ -123,11 +136,11 @@ const App = () => (
 
             {/* Catch-all */}
             <Route path="*" element={<NotFound />} />
-          </Routes>
-        </AuthProvider>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
+            </Routes>
+          </AuthProvider>
+        </BrowserRouter>
+      </TooltipProvider>
+    </QueryClientProvider>
   </ThemeProvider>
 );
 

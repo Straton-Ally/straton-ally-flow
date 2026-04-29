@@ -85,8 +85,57 @@ export function Notifications() {
   const [filterRead, setFilterRead] = useState<'all' | 'read' | 'unread'>('all');
   const [selectedNotifications, setSelectedNotifications] = useState<string[]>([]);
   const [notificationPermission, setNotificationPermission] = useState<'unsupported' | 'default' | 'denied' | 'granted'>('unsupported');
+  const [overtimeSubmittingFor, setOvertimeSubmittingFor] = useState<string | null>(null);
+  const [pushStatus, setPushStatus] = useState<'unsupported' | 'disabled' | 'enabled'>('unsupported');
+  const [pushConfigAvailable, setPushConfigAvailable] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
 
   const unreadCount = notifications.filter(n => !n.is_read).length;
+
+  const getPushPublicKey = () => import.meta.env.VITE_WEB_PUSH_PUBLIC_KEY as string | undefined;
+
+  const decodeBase64Url = (value: string) => {
+    const padded = `${value}${'='.repeat((4 - (value.length % 4)) % 4)}`.replace(/-/g, '+').replace(/_/g, '/');
+    const binary = window.atob(padded);
+    return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  };
+
+  const upsertPushSubscription = async (subscription: PushSubscription) => {
+    const json = subscription.toJSON();
+    const endpoint = json.endpoint;
+    if (!endpoint) throw new Error('Push subscription endpoint missing.');
+
+    const client = supabase as unknown as {
+      from: (table: string) => {
+        upsert: (values: Record<string, unknown>, options?: Record<string, unknown>) => Promise<{ error: Error | null }>;
+        delete: () => { eq: (column: string, value: string) => Promise<{ error: Error | null }> };
+      };
+    };
+
+    const { error } = await client.from('notification_push_subscriptions').upsert(
+      {
+        user_id: user?.id,
+        endpoint,
+        subscription: json,
+        user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+        last_seen_at: new Date().toISOString(),
+      },
+      { onConflict: 'endpoint' },
+    );
+
+    if (error) throw error;
+  };
+
+  const syncPushStatus = async () => {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+      setPushStatus('unsupported');
+      return;
+    }
+
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+    setPushStatus(subscription ? 'enabled' : 'disabled');
+  };
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -96,6 +145,99 @@ export function Notifications() {
     }
     setNotificationPermission(Notification.permission);
   }, []);
+
+  useEffect(() => {
+    const publicKey = getPushPublicKey();
+    setPushConfigAvailable(Boolean(publicKey));
+    void syncPushStatus();
+  }, []);
+
+  const enablePushNotifications = async () => {
+    if (typeof window === 'undefined') return;
+    const publicKey = getPushPublicKey();
+
+    if (!publicKey) {
+      toast({
+        title: 'Push not configured',
+        description: 'Set VITE_WEB_PUSH_PUBLIC_KEY to enable true push notifications.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      toast({
+        title: 'Push not supported',
+        description: 'This browser does not support push subscriptions.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setPushBusy(true);
+    try {
+      const permission =
+        typeof Notification === 'undefined' ? 'denied' : await Notification.requestPermission();
+      setNotificationPermission(permission);
+
+      if (permission !== 'granted') {
+        throw new Error('Notification permission was not granted.');
+      }
+
+      const registration = await navigator.serviceWorker.ready;
+      const existing = await registration.pushManager.getSubscription();
+      const subscription =
+        existing ??
+        (await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: decodeBase64Url(publicKey),
+        }));
+
+      await upsertPushSubscription(subscription);
+      setPushStatus('enabled');
+      toast({ title: 'Push notifications enabled' });
+    } catch (error) {
+      toast({
+        title: 'Push setup failed',
+        description: error instanceof Error ? error.message : 'Failed to enable push notifications.',
+        variant: 'destructive',
+      });
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
+  const disablePushNotifications = async () => {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+
+    setPushBusy(true);
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription) {
+        const endpoint = subscription.endpoint;
+        await subscription.unsubscribe();
+
+        const client = supabase as unknown as {
+          from: (table: string) => {
+            delete: () => { eq: (column: string, value: string) => Promise<{ error: Error | null }> };
+          };
+        };
+        await client.from('notification_push_subscriptions').delete().eq('endpoint', endpoint);
+      }
+
+      setPushStatus('disabled');
+      toast({ title: 'Push notifications disabled' });
+    } catch (error) {
+      toast({
+        title: 'Push disable failed',
+        description: error instanceof Error ? error.message : 'Failed to disable push notifications.',
+        variant: 'destructive',
+      });
+    } finally {
+      setPushBusy(false);
+    }
+  };
 
   const requestDesktopPermission = async () => {
     if (typeof window === 'undefined') return;
@@ -260,6 +402,66 @@ export function Notifications() {
     await supabase.from('work_notifications').delete().eq('id', notificationId);
   };
 
+  const submitOvertimeRequest = async (notification: WorkNotification) => {
+    const attendanceId =
+      typeof notification.metadata?.attendance_id === 'string' ? notification.metadata.attendance_id : null;
+
+    if (!attendanceId) {
+      toast({
+        title: 'Attendance record missing',
+        description: 'This reminder is not linked to an attendance record.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setOvertimeSubmittingFor(notification.id);
+    try {
+      const { error } = await (supabase as unknown as {
+        rpc: (fn: string, args: Record<string, unknown>) => Promise<{ error: Error | null }>;
+      }).rpc('submit_overtime_request', {
+        _attendance_id: attendanceId,
+        _reason: 'Working overtime',
+      });
+
+      if (error) throw error;
+
+      await handleMarkAsRead(notification.id);
+      toast({
+        title: 'OT request submitted',
+        description: 'OT request submitted to Team Lead/Supervisor.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Overtime request failed',
+        description: error instanceof Error ? error.message : 'Failed to submit overtime request.',
+        variant: 'destructive',
+      });
+    } finally {
+      setOvertimeSubmittingFor(null);
+    }
+  };
+
+  const getNotificationTarget = (notification: WorkNotification) => {
+    if (notification.action_url) return notification.action_url;
+    if (notification.office_id && notification.channel_id) {
+      return `/work/${notification.office_id}/channel/${notification.channel_id}`;
+    }
+    if (
+      notification.type === 'attendance_checkout_reminder' ||
+      notification.type === 'attendance_auto_checkout' ||
+      notification.type === 'overtime_approved' ||
+      notification.type === 'overtime_declined' ||
+      notification.type === 'early_checkout_response'
+    ) {
+      return user?.role === 'admin' ? '/admin/attendance' : '/employee/attendance';
+    }
+    if (notification.type === 'overtime_request') {
+      return '/admin/attendance';
+    }
+    return '/work';
+  };
+
   const handleBulkDelete = async () => {
     const ids = selectedNotifications;
     if (ids.length === 0) return;
@@ -287,15 +489,7 @@ export function Notifications() {
 
   const openNotification = async (notification: WorkNotification) => {
     if (!notification.is_read) await handleMarkAsRead(notification.id);
-    if (notification.action_url) {
-      navigate(notification.action_url);
-      return;
-    }
-    if (notification.office_id && notification.channel_id) {
-      navigate(`/work/${notification.office_id}/channel/${notification.channel_id}`);
-      return;
-    }
-    navigate('/work');
+    navigate(getNotificationTarget(notification));
   };
 
   const NotificationCard = ({ notification }: { notification: WorkNotification }) => {
@@ -341,9 +535,26 @@ export function Notifications() {
               </span>
               
               <div className="flex items-center gap-2">
+                {notification.type === 'attendance_checkout_reminder' ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={overtimeSubmittingFor === notification.id}
+                      onClick={() => submitOvertimeRequest(notification)}
+                    >
+                      <Timer className="h-3 w-3 mr-1" />
+                      I am working overtime
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleMarkAsRead(notification.id)}>
+                      Dismiss
+                    </Button>
+                  </>
+                ) : null}
+
                 <Button variant="outline" size="sm" onClick={() => openNotification(notification)}>
                   <ArrowUpRight className="h-3 w-3 mr-1" />
-                  Open
+                  {notification.type === 'overtime_request' ? 'Review' : 'Open'}
                 </Button>
 
                 {!notification.is_read ? (
@@ -412,6 +623,30 @@ export function Notifications() {
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
             Enable notifications for this site in your browser settings.
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {pushStatus !== 'unsupported' ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Push notifications</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+            <div className="text-sm text-muted-foreground">
+              {pushConfigAvailable
+                ? 'Receive attendance and overtime alerts even when the app is in the background.'
+                : 'Push infrastructure is not configured yet for this environment.'}
+            </div>
+            {pushStatus === 'enabled' ? (
+              <Button variant="outline" onClick={disablePushNotifications} disabled={pushBusy}>
+                Disable Push
+              </Button>
+            ) : (
+              <Button onClick={enablePushNotifications} disabled={pushBusy || !pushConfigAvailable}>
+                Enable Push
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : null}

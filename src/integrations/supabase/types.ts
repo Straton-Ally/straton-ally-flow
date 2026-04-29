@@ -715,6 +715,39 @@ export type Database = {
         }
         Relationships: []
       }
+      notification_push_subscriptions: {
+        Row: {
+          created_at: string
+          endpoint: string
+          id: string
+          last_seen_at: string
+          subscription: Json
+          updated_at: string
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          endpoint: string
+          id?: string
+          last_seen_at?: string
+          subscription: Json
+          updated_at?: string
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          endpoint?: string
+          id?: string
+          last_seen_at?: string
+          subscription?: Json
+          updated_at?: string
+          user_agent?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
