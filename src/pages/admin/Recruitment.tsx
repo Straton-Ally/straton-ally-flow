@@ -28,6 +28,7 @@ import {
   ArrowUp,
   ArrowDown,
   Settings,
+  Globe2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -72,6 +73,7 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
 import { formatTime12h } from '@/lib/utils';
+import { COMMON_TIME_ZONES, getSupportedTimeZones, isValidTimeZone } from '@/lib/timezones';
 import { NewEmployeeForm } from '@/components/employee/NewEmployeeForm';
 import { EditEmployeeForm } from '@/components/employee/EditEmployeeForm';
 
@@ -189,6 +191,13 @@ interface DepartmentOpsRow {
   employee_count: number;
 }
 
+interface AttendanceTimeZone {
+  id: string;
+  name: string;
+  time_zone: string;
+  is_active: boolean;
+}
+
 const WORK_DAYS_OPTIONS = [
   { value: 'monday', label: 'Mon' },
   { value: 'tuesday', label: 'Tue' },
@@ -304,6 +313,16 @@ export default function Recruitment() {
   const [editingDeptOps, setEditingDeptOps] = useState<DepartmentOpsRow | null>(null);
   const [deptForm, setDeptForm] = useState({ name: '', description: '' });
   const [isDeptSaving, setIsDeptSaving] = useState(false);
+  const [attendanceTimeZones, setAttendanceTimeZones] = useState<AttendanceTimeZone[]>([]);
+  const [isTimeZonesLoading, setIsTimeZonesLoading] = useState(false);
+  const [isTimeZoneDialogOpen, setIsTimeZoneDialogOpen] = useState(false);
+  const [editingTimeZone, setEditingTimeZone] = useState<AttendanceTimeZone | null>(null);
+  const [timeZoneForm, setTimeZoneForm] = useState({ name: '', time_zone: 'Europe/London', is_active: true });
+  const [isTimeZoneSaving, setIsTimeZoneSaving] = useState(false);
+  const supportedTimeZones = useMemo(() => {
+    const zones = new Set([...COMMON_TIME_ZONES, ...getSupportedTimeZones()]);
+    return Array.from(zones).sort((a, b) => a.localeCompare(b));
+  }, []);
   const { toast } = useToast();
 
   const getErrorMessage = (error: unknown) => {
@@ -543,11 +562,28 @@ export default function Recruitment() {
     }
   };
 
+  const fetchAttendanceTimeZones = async () => {
+    setIsTimeZonesLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('attendance_time_zones')
+        .select('id, name, time_zone, is_active')
+        .order('name');
+      if (error) throw error;
+      setAttendanceTimeZones((data ?? []) as AttendanceTimeZone[]);
+    } catch (e) {
+      toast({ title: 'Error', description: getErrorMessage(e) || 'Failed to load time zones', variant: 'destructive' });
+    } finally {
+      setIsTimeZonesLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchOffices();
     fetchEmployees();
     fetchScheduleTemplates();
     fetchDepartmentsOps();
+    fetchAttendanceTimeZones();
   }, []);
 
   const openNewOfficeDialog = async () => {
@@ -958,6 +994,62 @@ export default function Recruitment() {
       await fetchScheduleTemplates();
     } catch (e) {
       toast({ title: 'Error', description: getErrorMessage(e) || 'Failed to delete schedule', variant: 'destructive' });
+    }
+  };
+
+  const openTimeZoneDialog = (zone?: AttendanceTimeZone) => {
+    if (zone) {
+      setEditingTimeZone(zone);
+      setTimeZoneForm({ name: zone.name, time_zone: zone.time_zone, is_active: zone.is_active });
+    } else {
+      setEditingTimeZone(null);
+      setTimeZoneForm({ name: '', time_zone: 'Europe/London', is_active: true });
+    }
+    setIsTimeZoneDialogOpen(true);
+  };
+
+  const saveAttendanceTimeZone = async () => {
+    const name = timeZoneForm.name.trim();
+    const timeZone = timeZoneForm.time_zone.trim();
+    if (!name || !timeZone) {
+      toast({ title: 'Missing fields', description: 'Name and time zone are required', variant: 'destructive' });
+      return;
+    }
+    if (!isValidTimeZone(timeZone)) {
+      toast({ title: 'Invalid time zone', description: 'Choose a valid IANA time zone such as Europe/London', variant: 'destructive' });
+      return;
+    }
+
+    try {
+      setIsTimeZoneSaving(true);
+      const payload = { name, time_zone: timeZone, is_active: timeZoneForm.is_active };
+      if (editingTimeZone) {
+        const { error } = await supabase.from('attendance_time_zones').update(payload).eq('id', editingTimeZone.id);
+        if (error) throw error;
+        toast({ title: 'Success', description: 'Time zone updated' });
+      } else {
+        const { error } = await supabase.from('attendance_time_zones').insert(payload);
+        if (error) throw error;
+        toast({ title: 'Success', description: 'Time zone created' });
+      }
+      setIsTimeZoneDialogOpen(false);
+      await fetchAttendanceTimeZones();
+    } catch (e) {
+      toast({ title: 'Error', description: getErrorMessage(e) || 'Failed to save time zone', variant: 'destructive' });
+    } finally {
+      setIsTimeZoneSaving(false);
+    }
+  };
+
+  const deleteAttendanceTimeZone = async (id: string) => {
+    if (!confirm('Delete this time zone? Existing attendance records will keep their saved timezone text.')) return;
+    try {
+      const { error } = await supabase.from('attendance_time_zones').delete().eq('id', id);
+      if (error) throw error;
+      toast({ title: 'Success', description: 'Time zone deleted' });
+      await fetchAttendanceTimeZones();
+    } catch (e) {
+      toast({ title: 'Error', description: getErrorMessage(e) || 'Failed to delete time zone', variant: 'destructive' });
     }
   };
 
@@ -1830,6 +1922,60 @@ export default function Recruitment() {
             </CardContent>
           </Card>
 
+          {/* Attendance Time Zones */}
+          <Card className="card-elevated">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Globe2 className="h-5 w-5" />
+                  Attendance Time Zones
+                </CardTitle>
+                <Button variant="outline" size="sm" onClick={() => openTimeZoneDialog()}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Time Zone
+                </Button>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Named time zones employees choose before check-in. UK Time should stay active for operations and reporting.
+              </p>
+            </CardHeader>
+            <CardContent>
+              {isTimeZonesLoading ? (
+                <div className="py-8 text-center text-muted-foreground">Loading...</div>
+              ) : attendanceTimeZones.length === 0 ? (
+                <div className="py-8 text-center">
+                  <Globe2 className="h-12 w-12 mx-auto mb-3 text-muted-foreground/50" />
+                  <p className="text-muted-foreground">No attendance time zones yet</p>
+                  <Button variant="outline" className="mt-4" onClick={() => openTimeZoneDialog()}>
+                    Add your first time zone
+                  </Button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {attendanceTimeZones.map((zone) => (
+                    <div key={zone.id} className="border rounded-lg p-4 flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="font-semibold truncate">{zone.name}</h3>
+                        <p className="text-sm text-muted-foreground truncate">{zone.time_zone}</p>
+                        <Badge className={zone.is_active ? 'badge-success mt-2 text-xs' : 'badge-destructive mt-2 text-xs'}>
+                          {zone.is_active ? 'Active' : 'Inactive'}
+                        </Badge>
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        <Button variant="ghost" size="icon" onClick={() => openTimeZoneDialog(zone)}>
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => deleteAttendanceTimeZone(zone.id)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Departments */}
           <Card className="card-elevated">
             <CardHeader>
@@ -1959,6 +2105,56 @@ export default function Recruitment() {
                   <Button variant="outline" onClick={() => setIsScheduleDialogOpen(false)}>Cancel</Button>
                   <Button onClick={saveScheduleTemplate} disabled={isScheduleSaving}>
                     {editingScheduleTemplate ? 'Update' : 'Create'}
+                  </Button>
+                </DialogFooter>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Time zone dialog */}
+          <Dialog open={isTimeZoneDialogOpen} onOpenChange={setIsTimeZoneDialogOpen}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>{editingTimeZone ? 'Edit Time Zone' : 'New Time Zone'}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 pt-2">
+                <div className="space-y-2">
+                  <Label>Name</Label>
+                  <Input
+                    placeholder="e.g. UK Time, Pakistan Team"
+                    value={timeZoneForm.name}
+                    onChange={(e) => setTimeZoneForm((f) => ({ ...f, name: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Time zone</Label>
+                  <Select
+                    value={timeZoneForm.time_zone}
+                    onValueChange={(value) => setTimeZoneForm((f) => ({ ...f, time_zone: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select time zone" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {supportedTimeZones.map((zone) => (
+                        <SelectItem key={zone} value={zone}>
+                          {zone}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={timeZoneForm.is_active}
+                    onCheckedChange={(value) => setTimeZoneForm((f) => ({ ...f, is_active: value }))}
+                  />
+                  <Label>Active</Label>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsTimeZoneDialogOpen(false)}>Cancel</Button>
+                  <Button onClick={saveAttendanceTimeZone} disabled={isTimeZoneSaving}>
+                    {editingTimeZone ? 'Update' : 'Create'}
                   </Button>
                 </DialogFooter>
               </div>

@@ -39,6 +39,10 @@ interface AttendanceRecord {
   in_time: string | null;
   out_time: string | null;
   status: string;
+  attendance_time_zone_name: string | null;
+  attendance_time_zone: string | null;
+  check_in_uk_time: string | null;
+  check_out_uk_time: string | null;
   employee: {
     id: string;
     employee_id: string;
@@ -203,6 +207,10 @@ export default function Attendance() {
           in_time,
           out_time,
           status,
+          attendance_time_zone_name,
+          attendance_time_zone,
+          check_in_uk_time,
+          check_out_uk_time,
           employee_id
         `)
         .eq('date', selectedDate)
@@ -892,6 +900,7 @@ export default function Attendance() {
                   <TableHead>Employee</TableHead>
                   <TableHead>Employee ID</TableHead>
                   <TableHead>Office</TableHead>
+                  <TableHead>Time Zone</TableHead>
                   <TableHead>In Time</TableHead>
                   <TableHead>Out Time</TableHead>
                   <TableHead>Status</TableHead>
@@ -910,8 +919,24 @@ export default function Attendance() {
                       </code>
                     </TableCell>
                     <TableCell>{record.employee.office_name ?? 'No office'}</TableCell>
-                    <TableCell>{formatTime12h(record.in_time)}</TableCell>
-                    <TableCell>{formatTime12h(record.out_time)}</TableCell>
+                    <TableCell>
+                      <div className="text-sm">
+                        <p>{record.attendance_time_zone_name ?? '—'}</p>
+                        {record.attendance_time_zone && <p className="text-xs text-muted-foreground">{record.attendance_time_zone}</p>}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div>
+                        <p>{formatTime12h(record.in_time)}</p>
+                        {record.check_in_uk_time && <p className="text-xs text-muted-foreground">UK: {formatTime12h(record.check_in_uk_time)}</p>}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div>
+                        <p>{formatTime12h(record.out_time)}</p>
+                        {record.check_out_uk_time && <p className="text-xs text-muted-foreground">UK: {formatTime12h(record.check_out_uk_time)}</p>}
+                      </div>
+                    </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1.5 items-center">
                         {getStatusBadge(record.status)}

@@ -92,7 +92,7 @@ DECLARE
   effective_ip TEXT;
   location_lat DOUBLE PRECISION;
   location_lng DOUBLE PRECISION;
-  radius_meters INTEGER;
+  allowed_radius_meters INTEGER;
   distance_meters DOUBLE PRECISION;
   is_restricted BOOLEAN;
 BEGIN
@@ -122,10 +122,16 @@ BEGIN
     RETURN false;
   END IF;
 
-  SELECT allowed_ip_ranges, require_ip_whitelist, geo_fencing_enabled, latitude, longitude, radius_meters
+  SELECT
+    os.allowed_ip_ranges,
+    os.require_ip_whitelist,
+    os.geo_fencing_enabled,
+    os.latitude,
+    os.longitude,
+    os.radius_meters
   INTO settings_row
-  FROM public.office_settings
-  WHERE office_id = employee_row.office_id;
+  FROM public.office_settings os
+  WHERE os.office_id = employee_row.office_id;
 
   IF NOT FOUND THEN
     RETURN true;
@@ -167,10 +173,10 @@ BEGIN
       RETURN false;
     END IF;
 
-    radius_meters := COALESCE(settings_row.radius_meters, 100);
+    allowed_radius_meters := COALESCE(settings_row.radius_meters, 100);
     distance_meters := public.geo_distance_meters(location_lat, location_lng, settings_row.latitude::DOUBLE PRECISION, settings_row.longitude::DOUBLE PRECISION);
 
-    IF distance_meters > radius_meters THEN
+    IF distance_meters > allowed_radius_meters THEN
       RETURN false;
     END IF;
   END IF;

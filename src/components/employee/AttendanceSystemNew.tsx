@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Clock, MapPin, Coffee, LogIn, LogOut, LogOutIcon } from 'lucide-react';
+import { Clock, MapPin, Coffee, LogIn, LogOut, LogOutIcon, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -15,9 +15,17 @@ import {
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { formatTime12h } from '@/lib/utils';
+import { formatInTimeZone, formatTimeOnlyInTimeZone, UK_TIME_ZONE } from '@/lib/timezones';
 import { format } from 'date-fns';
 
 interface AttendanceRecord {
@@ -34,6 +42,13 @@ interface AttendanceRecord {
   check_out_ip: string | null;
   check_in_location: { lat: number; lng: number; accuracy?: number } | null;
   check_out_location: { lat: number; lng: number; accuracy?: number } | null;
+  attendance_time_zone_id: string | null;
+  attendance_time_zone_name: string | null;
+  attendance_time_zone: string | null;
+  check_in_local_time: string | null;
+  check_out_local_time: string | null;
+  check_in_uk_time: string | null;
+  check_out_uk_time: string | null;
   total_work_minutes: number | null;
   status: 'present' | 'absent' | 'half_day' | 'leave';
   notes: string | null;
@@ -66,7 +81,13 @@ interface OfficeWithSettingsRow {
   id: string;
   name: string;
   is_active: boolean;
-  office_settings: OfficeSettingsRow[] | null;
+  office_settings: OfficeSettingsRow | OfficeSettingsRow[] | null;
+}
+
+interface AttendanceTimeZone {
+  id: string;
+  name: string;
+  time_zone: string;
 }
 
 export function AttendanceSystem() {
@@ -110,6 +131,9 @@ export function AttendanceSystem() {
   const [earlyRequestReason, setEarlyRequestReason] = useState('');
   const [earlyRequestTime, setEarlyRequestTime] = useState('');
   const [earlyRequestSubmitting, setEarlyRequestSubmitting] = useState(false);
+  const [attendanceTimeZones, setAttendanceTimeZones] = useState<AttendanceTimeZone[]>([]);
+  const [selectedTimeZoneId, setSelectedTimeZoneId] = useState('');
+  const [isRefreshingLocation, setIsRefreshingLocation] = useState(false);
   const { toast } = useToast();
   const remoteOfficeSettings = {
     officeName: 'Remote',
@@ -143,6 +167,7 @@ export function AttendanceSystem() {
   // Fetch today's attendance and check location
   useEffect(() => {
     void (async () => {
+      await fetchAttendanceTimeZones();
       await loadEmployeeOfficeContext();
     })();
   }, []);
@@ -214,26 +239,23 @@ export function AttendanceSystem() {
 
   /** Live duty duration in seconds (excludes break). Updates with currentTime. */
   const getDutyDurationSeconds = (): number | null => {
-    if (!attendance?.in_time) return null;
-    const inMins = timeToMinutesSinceMidnight(attendance.in_time);
-    if (inMins === null) return null;
-    const dateOnly = format(currentTime, 'yyyy-MM-dd');
-    const recordDate = attendance.date;
-    if (dateOnly !== recordDate) return null;
-
+    if (!attendance?.in_time && !attendance?.check_in_at) return null;
     let breakMinutesSoFar = attendance.break_total_minutes ?? 0;
     if (attendance.break_start_at) {
       const breakStart = new Date(attendance.break_start_at);
       breakMinutesSoFar += (currentTime.getTime() - breakStart.getTime()) / 60000;
     }
 
-    if (attendance.out_time) {
-      const outMins = timeToMinutesSinceMidnight(attendance.out_time);
-      if (outMins === null) return null;
-      const dutyMins = Math.max(0, outMins - inMins - (attendance.break_total_minutes ?? 0));
-      return Math.round(dutyMins * 60);
+    if (attendance.check_in_at) {
+      const checkInMs = new Date(attendance.check_in_at).getTime();
+      const checkOutMs = attendance.check_out_at ? new Date(attendance.check_out_at).getTime() : currentTime.getTime();
+      if (Number.isNaN(checkInMs) || Number.isNaN(checkOutMs)) return null;
+      const dutySeconds = Math.max(0, Math.floor((checkOutMs - checkInMs) / 1000) - Math.round(breakMinutesSoFar * 60));
+      return dutySeconds;
     }
 
+    const inMins = timeToMinutesSinceMidnight(attendance.in_time);
+    if (inMins === null) return null;
     const nowMins = currentTime.getHours() * 60 + currentTime.getMinutes() + currentTime.getSeconds() / 60;
     const dutyMins = Math.max(0, nowMins - inMins - breakMinutesSoFar);
     return Math.round(dutyMins * 60);
@@ -250,14 +272,107 @@ export function AttendanceSystem() {
     return parts.join(' ');
   };
 
+  const getSelectedTimeZone = () =>
+    attendanceTimeZones.find((zone) => zone.id === selectedTimeZoneId) ?? attendanceTimeZones[0] ?? null;
+
+  const getDateInTimeZone = (date: Date, timeZone: string) =>
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
+
+  const getTimeZoneSnapshots = (date: Date, zone: AttendanceTimeZone) => ({
+    localTime: formatTimeOnlyInTimeZone(date, zone.time_zone, false),
+    ukTime: formatTimeOnlyInTimeZone(date, UK_TIME_ZONE, false),
+    selectedDisplay: formatInTimeZone(date, zone.time_zone, use12HourTime),
+    ukDisplay: formatInTimeZone(date, UK_TIME_ZONE, use12HourTime),
+  });
+
+  const fetchAttendanceTimeZones = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('attendance_time_zones')
+        .select('id, name, time_zone')
+        .eq('is_active', true)
+        .order('name');
+      if (error) throw error;
+      const zones = (data ?? []) as AttendanceTimeZone[];
+      setAttendanceTimeZones(zones);
+      const ukZone = zones.find((zone) => zone.time_zone === UK_TIME_ZONE);
+      setSelectedTimeZoneId((current) => current || ukZone?.id || zones[0]?.id || '');
+    } catch (error) {
+      console.error('Error fetching attendance time zones:', error);
+      setAttendanceTimeZones([]);
+    }
+  };
+
   const getGeoPosition = async () => {
+    if (!navigator.geolocation) return null;
+    const requestPosition = (options: PositionOptions) =>
+      new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, options);
+      });
+
+    const toGeo = (position: GeolocationPosition) => ({
+      lat: position.coords.latitude,
+      lng: position.coords.longitude,
+      accuracy: position.coords.accuracy,
+    });
+
+    try {
+      return toGeo(
+        await requestPosition({
+          enableHighAccuracy: true,
+          timeout: 20000,
+          maximumAge: 0,
+        }),
+      );
+    } catch {
+      try {
+        return toGeo(
+          await requestPosition({
+            enableHighAccuracy: false,
+            timeout: 30000,
+            maximumAge: 30000,
+          }),
+        );
+      } catch {
+        return null;
+      }
+    }
+  };
+
+  const handleManualLocationRefresh = async () => {
+    if (!officeSettings) return;
+    setIsRefreshingLocation(true);
+    try {
+      await refreshLocation();
+    } finally {
+      setIsRefreshingLocation(false);
+    }
+  };
+
+  const watchGeoPosition = async () => {
     if (!navigator.geolocation) return null;
     try {
       const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 15000,
-        });
+        const watchId = navigator.geolocation.watchPosition(
+          (pos) => {
+            navigator.geolocation.clearWatch(watchId);
+            resolve(pos);
+          },
+          (error) => {
+            navigator.geolocation.clearWatch(watchId);
+            reject(error);
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 30000,
+            maximumAge: 0,
+          },
+        );
       });
       return {
         lat: position.coords.latitude,
@@ -367,7 +482,9 @@ export function AttendanceSystem() {
       }
 
       const officeRow = officeData as unknown as OfficeWithSettingsRow;
-      const rawSettings = officeRow.office_settings?.[0] ?? null;
+      const rawSettings = Array.isArray(officeRow.office_settings)
+        ? officeRow.office_settings[0] ?? null
+        : officeRow.office_settings;
 
       const normalized = {
         officeName: officeRow.name,
@@ -396,7 +513,7 @@ export function AttendanceSystem() {
 
   const fetchTodayAttendance = async (empId?: string) => {
     try {
-      const today = format(new Date(), 'yyyy-MM-dd');
+      const today = getDateInTimeZone(new Date(), UK_TIME_ZONE);
       const effectiveEmployeeId = empId ?? employeeId;
       if (!effectiveEmployeeId) return;
 
@@ -404,7 +521,7 @@ export function AttendanceSystem() {
       const { data: attendanceData } = await supabase
         .from('attendance')
         .select(
-          'id,date,in_time,out_time,break_duration,break_start_at,break_total_minutes,status,notes,created_at,employee_id,check_in_at,check_out_at,check_in_ip,check_out_ip,check_in_location,check_out_location,total_work_minutes',
+          'id,date,in_time,out_time,break_duration,break_start_at,break_total_minutes,status,notes,created_at,employee_id,check_in_at,check_out_at,check_in_ip,check_out_ip,check_in_location,check_out_location,total_work_minutes,attendance_time_zone_id,attendance_time_zone_name,attendance_time_zone,check_in_local_time,check_out_local_time,check_in_uk_time,check_out_uk_time',
         )
         .eq('employee_id', effectiveEmployeeId)
         .eq('date', today)
@@ -432,6 +549,13 @@ export function AttendanceSystem() {
           check_out_ip: attendanceData.check_out_ip,
           check_in_location: checkInLocation,
           check_out_location: checkOutLocation,
+          attendance_time_zone_id: attendanceData.attendance_time_zone_id,
+          attendance_time_zone_name: attendanceData.attendance_time_zone_name,
+          attendance_time_zone: attendanceData.attendance_time_zone,
+          check_in_local_time: attendanceData.check_in_local_time,
+          check_out_local_time: attendanceData.check_out_local_time,
+          check_in_uk_time: attendanceData.check_in_uk_time,
+          check_out_uk_time: attendanceData.check_out_uk_time,
           total_work_minutes: attendanceData.total_work_minutes,
           status: attendanceData.status as 'present' | 'absent' | 'half_day' | 'leave',
           notes: attendanceData.notes,
@@ -527,8 +651,11 @@ export function AttendanceSystem() {
         const radius = settings.radiusMeters ?? 100;
 
         geo = await getGeoPosition();
+        if (!geo) geo = await watchGeoPosition();
 
-        if (geo && officeLat !== null && officeLng !== null) {
+        if (officeLat === null || officeLng === null) {
+          geoAllowed = false;
+        } else if (geo) {
           distance = haversineDistanceMeters(geo.lat, geo.lng, officeLat, officeLng);
           geoAllowed = distance <= radius;
         } else {
@@ -542,7 +669,9 @@ export function AttendanceSystem() {
         : !ipAllowed && requireIp
           ? 'Your network is not allowed for this office.'
           : !geoAllowed && requireGeo
-            ? 'You are outside the allowed office location.'
+            ? distance === null
+              ? 'Location access is required for this office. Tap refresh after allowing location permission.'
+              : 'You are outside the allowed office location.'
             : 'Attendance cannot be marked.';
 
       const computed: LocationInfo = {
@@ -579,6 +708,15 @@ export function AttendanceSystem() {
   const handleCheckIn = async () => {
     if (!employeeId) return;
     if (!officeSettings) return;
+    const selectedZone = getSelectedTimeZone();
+    if (!selectedZone) {
+      toast({
+        title: "Time zone required",
+        description: "Please select your attendance time zone before checking in.",
+        variant: "destructive",
+      });
+      return;
+    }
     const refreshed = await refreshLocation();
     if (!refreshed?.info.isAllowed) {
       toast({
@@ -591,9 +729,11 @@ export function AttendanceSystem() {
 
     setIsLoading(true);
     try {
-      const today = format(new Date(), 'yyyy-MM-dd');
-      const nowTime = format(new Date(), 'HH:mm:ss');
-      const nowIso = new Date().toISOString();
+      const now = new Date();
+      const today = getDateInTimeZone(now, UK_TIME_ZONE);
+      const nowTime = formatTimeOnlyInTimeZone(now, selectedZone.time_zone, false);
+      const nowIso = now.toISOString();
+      const snapshots = getTimeZoneSnapshots(now, selectedZone);
 
       // Check if already checked in
       if (attendance?.in_time) {
@@ -614,6 +754,11 @@ export function AttendanceSystem() {
           check_in_at: nowIso,
           check_in_ip: refreshed.info.currentIP,
           check_in_location: refreshed.geo,
+          attendance_time_zone_id: selectedZone.id,
+          attendance_time_zone_name: selectedZone.name,
+          attendance_time_zone: selectedZone.time_zone,
+          check_in_local_time: snapshots.localTime,
+          check_in_uk_time: snapshots.ukTime,
           last_verified_at: nowIso,
           last_verified_ip: refreshed.info.currentIP,
           last_verified_location: refreshed.geo,
@@ -648,6 +793,13 @@ export function AttendanceSystem() {
           check_out_ip: data.check_out_ip,
           check_in_location: checkInLocation,
           check_out_location: checkOutLocation,
+          attendance_time_zone_id: data.attendance_time_zone_id,
+          attendance_time_zone_name: data.attendance_time_zone_name,
+          attendance_time_zone: data.attendance_time_zone,
+          check_in_local_time: data.check_in_local_time,
+          check_out_local_time: data.check_out_local_time,
+          check_in_uk_time: data.check_in_uk_time,
+          check_out_uk_time: data.check_out_uk_time,
           total_work_minutes: data.total_work_minutes,
           status: data.status as 'present' | 'absent' | 'half_day' | 'leave',
           notes: data.notes,
@@ -658,7 +810,7 @@ export function AttendanceSystem() {
 
       toast({
         title: "Checked In Successfully",
-        description: `You checked in at ${nowTime}`,
+        description: `${selectedZone.name}: ${snapshots.selectedDisplay} • UK: ${snapshots.ukDisplay}`,
       });
     } catch (error) {
       console.error('Error checking in:', error);
@@ -680,6 +832,11 @@ export function AttendanceSystem() {
   const handleCheckOut = async () => {
     if (!attendance?.id) return;
     if (!officeSettings) return;
+    const attendanceZone: AttendanceTimeZone = {
+      id: attendance.attendance_time_zone_id || selectedTimeZoneId || '',
+      name: attendance.attendance_time_zone_name || getSelectedTimeZone()?.name || 'Selected Time',
+      time_zone: attendance.attendance_time_zone || getSelectedTimeZone()?.time_zone || UK_TIME_ZONE,
+    };
     const refreshed = await refreshLocation();
     if (!refreshed?.info.isAllowed) {
       toast({
@@ -708,8 +865,10 @@ export function AttendanceSystem() {
 
     setIsLoading(true);
     try {
-      const nowTime = format(new Date(), 'HH:mm:ss');
-      const nowIso = new Date().toISOString();
+      const now = new Date();
+      const nowTime = formatTimeOnlyInTimeZone(now, attendanceZone.time_zone, false);
+      const nowIso = now.toISOString();
+      const snapshots = getTimeZoneSnapshots(now, attendanceZone);
 
       const checkInAt = attendance.check_in_at
         ? new Date(attendance.check_in_at)
@@ -739,6 +898,8 @@ export function AttendanceSystem() {
           check_out_at: nowIso,
           check_out_ip: refreshed.info.currentIP,
           check_out_location: refreshed.geo,
+          check_out_local_time: snapshots.localTime,
+          check_out_uk_time: snapshots.ukTime,
           last_verified_at: nowIso,
           last_verified_ip: refreshed.info.currentIP,
           last_verified_location: refreshed.geo,
@@ -760,6 +921,8 @@ export function AttendanceSystem() {
               check_out_at: nowIso,
               check_out_ip: refreshed.info.currentIP,
               check_out_location: refreshed.geo,
+              check_out_local_time: snapshots.localTime,
+              check_out_uk_time: snapshots.ukTime,
               break_start_at: null,
               break_total_minutes: breakTotal,
               break_duration: breakDurationStr,
@@ -770,7 +933,7 @@ export function AttendanceSystem() {
       );
       toast({
         title: "Checked Out Successfully",
-        description: `You checked out at ${nowTime}. Total hours: ${totalHoursStr}`,
+        description: `${attendanceZone.name}: ${snapshots.selectedDisplay} • UK: ${snapshots.ukDisplay}. Total hours: ${totalHoursStr}`,
       });
     } catch (error) {
       console.error('Error checking out:', error);
@@ -942,7 +1105,7 @@ export function AttendanceSystem() {
       >
         <MapPin className="h-4 w-4" />
         <AlertDescription>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <span>
               {isCheckingLocation
                 ? `Checking location/network${locationInfo.officeName ? ` (${locationInfo.officeName})` : ''}...`
@@ -950,13 +1113,28 @@ export function AttendanceSystem() {
                   ? `✓ Allowed${locationInfo.officeName ? ` (${locationInfo.officeName})` : ''}`
                   : `⚠ ${locationInfo.reason || 'Not allowed. Attendance cannot be marked.'}`}
             </span>
-            <span className="text-sm text-muted-foreground">
-              {locationInfo.requireIpWhitelist ? `IP: ${locationInfo.currentIP || 'Checking...'}` : 'No IP restriction'}
-            </span>
+            <div className="flex items-center gap-3">
+              {locationInfo.requireGeoFencing && !locationInfo.isAllowed && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleManualLocationRefresh}
+                  disabled={isRefreshingLocation}
+                  className="h-8"
+                >
+                  <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshingLocation ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
+              )}
+              <span className="text-sm text-muted-foreground">
+                {locationInfo.requireIpWhitelist ? `IP: ${locationInfo.currentIP || 'Checking...'}` : 'No IP restriction'}
+              </span>
+            </div>
           </div>
           {locationInfo.requireGeoFencing && (
             <div className="mt-1 text-sm text-muted-foreground">
-              Distance: {locationInfo.distance === null ? 'Checking...' : `${Math.round(locationInfo.distance)}m`}
+              Distance: {locationInfo.distance === null ? (locationInfo.reason ? 'Not available' : 'Checking...') : `${Math.round(locationInfo.distance)}m`}
             </div>
           )}
         </AlertDescription>
@@ -977,13 +1155,44 @@ export function AttendanceSystem() {
             </div>
           </div>
         </CardHeader>
-        <CardContent>
-          <div className="text-3xl font-bold">
-            {format(currentTime, use12HourTime ? 'hh:mm:ss a' : 'HH:mm:ss')}
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <p className="text-sm text-muted-foreground">Your device time</p>
+              <div className="text-3xl font-bold">
+                {format(currentTime, use12HourTime ? 'hh:mm:ss a' : 'HH:mm:ss')}
+              </div>
+              <p className="text-muted-foreground">
+                {format(currentTime, 'EEEE, MMMM d, yyyy')}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">UK time</p>
+              <div className="text-3xl font-bold">
+                {formatTimeOnlyInTimeZone(currentTime, UK_TIME_ZONE, use12HourTime)}
+              </div>
+              <p className="text-muted-foreground">
+                {formatInTimeZone(currentTime, UK_TIME_ZONE, use12HourTime)}
+              </p>
+            </div>
           </div>
-          <p className="text-muted-foreground">
-            {format(currentTime, 'EEEE, MMMM d, yyyy')}
-          </p>
+          {!attendance?.in_time && (
+            <div className="space-y-2">
+              <Label>Attendance time zone</Label>
+              <Select value={selectedTimeZoneId} onValueChange={setSelectedTimeZoneId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select time zone before check-in" />
+                </SelectTrigger>
+                <SelectContent>
+                  {attendanceTimeZones.map((zone) => (
+                    <SelectItem key={zone.id} value={zone.id}>
+                      {zone.name} ({zone.time_zone})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -997,17 +1206,31 @@ export function AttendanceSystem() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
+            {attendance?.attendance_time_zone && (
+              <div className="col-span-2 rounded-md border bg-muted/30 p-3">
+                <p className="text-sm text-muted-foreground">Recorded time zone</p>
+                <p className="font-medium">
+                  {attendance.attendance_time_zone_name ?? 'Selected Time'} ({attendance.attendance_time_zone})
+                </p>
+              </div>
+            )}
             <div>
               <p className="text-sm text-muted-foreground">Check In</p>
               <p className="font-medium">
                 {formatTime12h(attendance?.in_time)}
               </p>
+              {attendance?.check_in_uk_time && (
+                <p className="text-xs text-muted-foreground">UK: {formatTime12h(attendance.check_in_uk_time)}</p>
+              )}
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Check Out</p>
               <p className="font-medium">
                 {formatTime12h(attendance?.out_time)}
               </p>
+              {attendance?.check_out_uk_time && (
+                <p className="text-xs text-muted-foreground">UK: {formatTime12h(attendance.check_out_uk_time)}</p>
+              )}
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Break Duration</p>
@@ -1047,7 +1270,7 @@ export function AttendanceSystem() {
             {!attendance?.in_time ? (
               <Button 
                 onClick={handleCheckIn}
-                disabled={!locationInfo.isAllowed || isLoading}
+                disabled={!locationInfo.isAllowed || isLoading || !selectedTimeZoneId}
                 className="flex items-center gap-2"
               >
                 <LogIn className="h-4 w-4" />

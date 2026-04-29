@@ -41,15 +41,22 @@ export type Database = {
     Tables: {
       attendance: {
         Row: {
+          attendance_time_zone: string | null
+          attendance_time_zone_id: string | null
+          attendance_time_zone_name: string | null
           break_duration: string | null
           break_start_at: string | null
           break_total_minutes: number
           check_in_at: string | null
           check_in_ip: string | null
           check_in_location: Json | null
+          check_in_local_time: string | null
+          check_in_uk_time: string | null
           check_out_at: string | null
           check_out_ip: string | null
           check_out_location: Json | null
+          check_out_local_time: string | null
+          check_out_uk_time: string | null
           created_at: string
           date: string
           employee_id: string
@@ -64,15 +71,22 @@ export type Database = {
           total_work_minutes: number | null
         }
         Insert: {
+          attendance_time_zone?: string | null
+          attendance_time_zone_id?: string | null
+          attendance_time_zone_name?: string | null
           break_duration?: string | null
           break_start_at?: string | null
           break_total_minutes?: number
           check_in_at?: string | null
           check_in_ip?: string | null
           check_in_location?: Json | null
+          check_in_local_time?: string | null
+          check_in_uk_time?: string | null
           check_out_at?: string | null
           check_out_ip?: string | null
           check_out_location?: Json | null
+          check_out_local_time?: string | null
+          check_out_uk_time?: string | null
           created_at?: string
           date: string
           employee_id: string
@@ -87,15 +101,22 @@ export type Database = {
           total_work_minutes?: number | null
         }
         Update: {
+          attendance_time_zone?: string | null
+          attendance_time_zone_id?: string | null
+          attendance_time_zone_name?: string | null
           break_duration?: string | null
           break_start_at?: string | null
           break_total_minutes?: number
           check_in_at?: string | null
           check_in_ip?: string | null
           check_in_location?: Json | null
+          check_in_local_time?: string | null
+          check_in_uk_time?: string | null
           check_out_at?: string | null
           check_out_ip?: string | null
           check_out_location?: Json | null
+          check_out_local_time?: string | null
+          check_out_uk_time?: string | null
           created_at?: string
           date?: string
           employee_id?: string
@@ -117,7 +138,41 @@ export type Database = {
             referencedRelation: "employees"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "attendance_attendance_time_zone_id_fkey"
+            columns: ["attendance_time_zone_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_time_zones"
+            referencedColumns: ["id"]
+          },
         ]
+      }
+      attendance_time_zones: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          time_zone: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          time_zone: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          time_zone?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       departments: {
         Row: {
