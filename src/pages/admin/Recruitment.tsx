@@ -112,6 +112,7 @@ interface EmployeeRow {
   department: string | null;
   office_id: string | null;
   office_name: string | null;
+  work_location: 'remote' | 'on_site' | null;
   status: ProfileStatus;
   joining_date: string;
 }
@@ -149,6 +150,7 @@ interface EmployeeSelectRow {
   designation: string | null;
   joining_date: string;
   office_id: string | null;
+  work_location: 'remote' | 'on_site' | null;
   created_at: string;
 }
 
@@ -422,7 +424,7 @@ export default function Recruitment() {
       setIsEmployeesLoading(true);
       const { data: employeesData, error: employeesError } = await supabase
         .from('employees')
-        .select('id,user_id,employee_id,department_id,designation,joining_date,office_id,created_at')
+        .select('id,user_id,employee_id,department_id,designation,joining_date,office_id,work_location,created_at')
         .order('created_at', { ascending: false });
 
       if (employeesError) throw employeesError;
@@ -480,6 +482,7 @@ export default function Recruitment() {
           department: department?.name ?? null,
           office_id: emp.office_id ?? null,
           office_name: office?.name ?? null,
+          work_location: emp.work_location ?? null,
           status: profile?.status ?? 'inactive',
           joining_date: emp.joining_date,
         };
@@ -814,7 +817,7 @@ export default function Recruitment() {
 
   const openAssignDialog = (employeeId?: string) => {
     const employee = employeeId ? employees.find((e) => e.id === employeeId) : undefined;
-    const defaultOfficeId = employee?.office_id ?? offices[0]?.id ?? '';
+    const defaultOfficeId = employee?.work_location === 'remote' ? '_remote' : employee?.office_id ?? offices[0]?.id ?? '';
     setAssignForm({
       employeeId: employeeId ?? '',
       officeId: defaultOfficeId,
@@ -827,14 +830,20 @@ export default function Recruitment() {
 
     try {
       setIsAssignSaving(true);
+      const payload = assignForm.officeId === '_remote'
+        ? { office_id: null, work_location: 'remote' as const }
+        : { office_id: assignForm.officeId, work_location: 'on_site' as const };
       const { error } = await supabase
         .from('employees')
-        .update({ office_id: assignForm.officeId })
+        .update(payload)
         .eq('id', assignForm.employeeId);
 
       if (error) throw error;
 
-      toast({ title: 'Success', description: 'Employee assigned to office' });
+      toast({
+        title: 'Success',
+        description: assignForm.officeId === '_remote' ? 'Employee marked as remote' : 'Employee assigned to office',
+      });
       setIsAssignDialogOpen(false);
       await fetchEmployees();
     } catch (error: unknown) {
@@ -1040,7 +1049,7 @@ export default function Recruitment() {
 
   const filteredAndSortedEmployees = useMemo(() => {
     const q = employeesSearchQuery.trim().toLowerCase();
-    let list = q
+    const list = q
       ? employees.filter(
           (emp) =>
             emp.full_name.toLowerCase().includes(q) ||
@@ -1090,7 +1099,9 @@ export default function Recruitment() {
     const q = searchQuery.trim().toLowerCase();
     let list = employees;
     if (assignmentsOfficeId) {
-      list = list.filter((emp) => emp.office_id === assignmentsOfficeId);
+      list = assignmentsOfficeId === '_remote'
+        ? list.filter((emp) => emp.work_location === 'remote')
+        : list.filter((emp) => emp.office_id === assignmentsOfficeId);
     }
     if (q) {
       list = list.filter(
@@ -1098,7 +1109,7 @@ export default function Recruitment() {
           emp.full_name.toLowerCase().includes(q) ||
           emp.email.toLowerCase().includes(q) ||
           emp.employee_id.toLowerCase().includes(q) ||
-          (emp.office_name ?? '').toLowerCase().includes(q) ||
+          (emp.work_location === 'remote' ? 'remote' : emp.office_name ?? '').toLowerCase().includes(q) ||
           (emp.department ?? '').toLowerCase().includes(q) ||
           (emp.designation ?? '').toLowerCase().includes(q)
       );
@@ -1133,8 +1144,8 @@ export default function Recruitment() {
           bVal = (b.status ?? '').toLowerCase();
           return mult * (aVal < bVal ? -1 : aVal > bVal ? 1 : 0);
         case 'office':
-          aVal = (a.office_name ?? '').toLowerCase();
-          bVal = (b.office_name ?? '').toLowerCase();
+          aVal = (a.work_location === 'remote' ? 'remote' : a.office_name ?? '').toLowerCase();
+          bVal = (b.work_location === 'remote' ? 'remote' : b.office_name ?? '').toLowerCase();
           return mult * (aVal < bVal ? -1 : aVal > bVal ? 1 : 0);
         default:
           return 0;
@@ -1329,6 +1340,7 @@ export default function Recruitment() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="_all">All offices</SelectItem>
+                        <SelectItem value="_remote">Remote</SelectItem>
                         {offices.map((office) => (
                           <SelectItem key={office.id} value={office.id}>
                             {office.name}
@@ -1384,8 +1396,12 @@ export default function Recruitment() {
                           <TableCell>{employee.designation ?? '—'}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
-                              <Building2 className="h-4 w-4" />
-                              <span>{employee.office_name ?? 'Unassigned'}</span>
+                              {employee.work_location === 'remote' ? (
+                                <Wifi className="h-4 w-4" />
+                              ) : (
+                                <Building2 className="h-4 w-4" />
+                              )}
+                              <span>{employee.work_location === 'remote' ? 'Remote' : employee.office_name ?? 'Unassigned'}</span>
                             </div>
                           </TableCell>
                           <TableCell>{format(new Date(employee.joining_date), 'MMM d, yyyy')}</TableCell>
@@ -2262,6 +2278,7 @@ export default function Recruitment() {
                   <SelectValue placeholder="Select office" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="_remote">Remote</SelectItem>
                   {offices.map((office) => (
                     <SelectItem key={office.id} value={office.id}>
                       {office.name}

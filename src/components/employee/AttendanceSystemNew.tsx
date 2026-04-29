@@ -111,6 +111,16 @@ export function AttendanceSystem() {
   const [earlyRequestTime, setEarlyRequestTime] = useState('');
   const [earlyRequestSubmitting, setEarlyRequestSubmitting] = useState(false);
   const { toast } = useToast();
+  const remoteOfficeSettings = {
+    officeName: 'Remote',
+    isActive: true,
+    allowedIpRanges: [],
+    requireIpWhitelist: false,
+    geoFencingEnabled: false,
+    latitude: null,
+    longitude: null,
+    radiusMeters: null,
+  };
 
   // Update current time every second
   useEffect(() => {
@@ -266,7 +276,7 @@ export function AttendanceSystem() {
 
       const { data: employeeRow, error: employeeError } = await supabase
         .from('employees')
-        .select('id, office_id, duty_schedule_template_id, custom_work_end_time')
+        .select('id, office_id, work_location, duty_schedule_template_id, custom_work_end_time')
         .eq('user_id', userData.user.id)
         .single();
 
@@ -274,6 +284,7 @@ export function AttendanceSystem() {
       if (!employeeRow) return;
 
       const employee = employeeRow as typeof employeeRow & {
+        work_location?: 'remote' | 'on_site' | null;
         duty_schedule_template_id?: string | null;
         custom_work_end_time?: string | null;
         duty_schedule_templates?: { end_time: string } | null;
@@ -294,6 +305,23 @@ export function AttendanceSystem() {
 
       setEmployeeId(employee.id);
       setOfficeId(employee.office_id);
+
+      if (employee.work_location === 'remote') {
+        setOfficeSettings(remoteOfficeSettings);
+        setLocationInfo({
+          isAllowed: true,
+          ipAllowed: true,
+          geoAllowed: true,
+          requireIpWhitelist: false,
+          requireGeoFencing: false,
+          officeName: 'Remote',
+          currentIP: null,
+          distance: null,
+          reason: null,
+        });
+        await fetchTodayAttendance(employee.id);
+        return;
+      }
 
       if (!employee.office_id) {
         setOfficeSettings(null);
@@ -464,12 +492,28 @@ export function AttendanceSystem() {
         return { info: computed, geo: null as { lat: number; lng: number; accuracy?: number } | null };
       }
 
+      const requireIp = settings.requireIpWhitelist;
+      const requireGeo = settings.geoFencingEnabled;
+
+      if (!requireIp && !requireGeo) {
+        const computed: LocationInfo = {
+          isAllowed: true,
+          ipAllowed: true,
+          geoAllowed: true,
+          requireIpWhitelist: false,
+          requireGeoFencing: false,
+          officeName: settings.officeName,
+          currentIP: null,
+          distance: null,
+          reason: null,
+        };
+        setLocationInfo(computed);
+        return { info: computed, geo: null as { lat: number; lng: number; accuracy?: number } | null };
+      }
+
       const response = await fetch('https://api.ipify.org?format=json');
       const data = (await response.json()) as { ip?: string };
       const ip = data?.ip ?? null;
-
-      const requireIp = settings.requireIpWhitelist;
-      const requireGeo = settings.geoFencingEnabled;
 
       const ipAllowed = !requireIp || (!!ip && isIpAllowed(ip, settings.allowedIpRanges));
 
@@ -859,12 +903,16 @@ export function AttendanceSystem() {
     }
   };
 
+  const isCheckingLocation =
+    !locationInfo.isAllowed &&
+    (!locationInfo.currentIP || (locationInfo.requireGeoFencing && locationInfo.distance === null && !locationInfo.reason));
+
   return (
     <div className="space-y-6">
       {/* Location Status */}
       <Alert
         className={
-          !locationInfo.currentIP || (locationInfo.requireGeoFencing && locationInfo.distance === null && !locationInfo.reason)
+          isCheckingLocation
             ? 'border-border bg-muted/30'
             : locationInfo.isAllowed
               ? 'border-success/30 bg-success/10'
@@ -875,15 +923,14 @@ export function AttendanceSystem() {
         <AlertDescription>
           <div className="flex items-center justify-between">
             <span>
-              {!locationInfo.currentIP ||
-              (locationInfo.requireGeoFencing && locationInfo.distance === null && !locationInfo.reason)
+              {isCheckingLocation
                 ? `Checking location/network${locationInfo.officeName ? ` (${locationInfo.officeName})` : ''}...`
                 : locationInfo.isAllowed
                   ? `✓ Allowed${locationInfo.officeName ? ` (${locationInfo.officeName})` : ''}`
                   : `⚠ ${locationInfo.reason || 'Not allowed. Attendance cannot be marked.'}`}
             </span>
             <span className="text-sm text-muted-foreground">
-              IP: {locationInfo.currentIP || 'Checking...'}
+              {locationInfo.requireIpWhitelist ? `IP: ${locationInfo.currentIP || 'Checking...'}` : 'No IP restriction'}
             </span>
           </div>
           {locationInfo.requireGeoFencing && (

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
-import { Calendar, Clock, Search, Plus, Check, X, Coffee, LogOutIcon } from 'lucide-react';
+import { Calendar, Clock, Search, Plus, Check, X, Coffee, LogOutIcon, Edit, Trash2, Filter, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -43,6 +43,8 @@ interface AttendanceRecord {
     id: string;
     employee_id: string;
     full_name: string;
+    office_id: string | null;
+    office_name: string | null;
   };
   /** Scheduled start/end for this date (from template or custom), for badge logic */
   scheduleStart?: string | null;
@@ -54,6 +56,13 @@ interface Employee {
   employee_id: string;
   user_id: string;
   full_name: string;
+  office_id: string | null;
+  office_name: string | null;
+}
+
+interface Office {
+  id: string;
+  name: string;
 }
 
 interface EarlyCheckoutRequestRow {
@@ -72,9 +81,20 @@ interface EarlyCheckoutRequestRow {
 export default function Attendance() {
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [offices, setOffices] = useState<Office[]>([]);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [deletingRecordId, setDeletingRecordId] = useState<string | null>(null);
+  const [filters, setFilters] = useState({
+    search: '',
+    officeId: '_all',
+    status: '_all',
+    timeFrom: '',
+    timeTo: '',
+  });
   const [earlyRequests, setEarlyRequests] = useState<EarlyCheckoutRequestRow[]>([]);
   const [reviewModal, setReviewModal] = useState<{ id: string; employeeName: string; reason: string; time: string } | null>(null);
   const [reviewNotes, setReviewNotes] = useState('');
@@ -89,14 +109,62 @@ export default function Attendance() {
     outTime: '',
     status: 'present',
   });
+  const [editAttendance, setEditAttendance] = useState({
+    date: selectedDate,
+    inTime: '',
+    outTime: '',
+    status: 'present',
+  });
+
+  const normalizeTime = (time: string | null | undefined) => {
+    if (!time) return '';
+    const [hours = '00', minutes = '00'] = time.split(':');
+    return `${hours.padStart(2, '0')}:${minutes.padStart(2, '0')}`;
+  };
+
+  const timeToMinutes = (time: string | null | undefined) => {
+    const normalized = normalizeTime(time);
+    if (!normalized) return null;
+    const [hours, minutes] = normalized.split(':').map(Number);
+    return hours * 60 + minutes;
+  };
+
+  const dateTimeIso = (date: string, time: string) => {
+    if (!date || !time) return null;
+    return new Date(`${date}T${time}:00`).toISOString();
+  };
+
+  const calculateWorkMinutes = (inTime: string, outTime: string) => {
+    const start = timeToMinutes(inTime);
+    const end = timeToMinutes(outTime);
+    if (start === null || end === null || end < start) return null;
+    return end - start;
+  };
+
+  const resetFilters = () => {
+    setFilters({
+      search: '',
+      officeId: '_all',
+      status: '_all',
+      timeFrom: '',
+      timeTo: '',
+    });
+  };
 
   const fetchEmployees = async () => {
     const { data: employeesData } = await supabase
       .from('employees')
-      .select('id, employee_id, user_id')
+      .select('id, employee_id, user_id, office_id')
       .order('employee_id');
 
     if (employeesData) {
+      const officeIds = [...new Set(employeesData.map((emp) => emp.office_id).filter(Boolean))] as string[];
+      const officesById = new Map<string, string>();
+      if (officeIds.length > 0) {
+        const { data: officeRows } = await supabase.from('offices').select('id, name').in('id', officeIds);
+        officeRows?.forEach((office) => officesById.set(office.id, office.name));
+      }
+
       const withNames = await Promise.all(
         employeesData.map(async (emp) => {
           const { data: profile } = await supabase
@@ -107,11 +175,21 @@ export default function Attendance() {
           return {
             ...emp,
             full_name: profile?.full_name || 'Unknown',
+            office_name: emp.office_id ? officesById.get(emp.office_id) ?? null : null,
           };
         })
       );
       setEmployees(withNames);
     }
+  };
+
+  const fetchOffices = async () => {
+    const { data, error } = await supabase.from('offices').select('id, name').order('name');
+    if (error) {
+      console.error('Error fetching offices:', error);
+      return;
+    }
+    setOffices(data ?? []);
   };
 
   const fetchAttendance = async () => {
@@ -140,11 +218,12 @@ export default function Attendance() {
           data.map(async (record) => {
             const { data: emp } = await supabase
               .from('employees')
-              .select('id, employee_id, user_id, duty_schedule_template_id, custom_work_start_time, custom_work_end_time')
+              .select('id, employee_id, user_id, office_id, duty_schedule_template_id, custom_work_start_time, custom_work_end_time')
               .eq('id', record.employee_id)
               .single();
 
             let fullName = 'Unknown';
+            let officeName: string | null = null;
             let scheduleStart: string | null = null;
             let scheduleEnd: string | null = null;
 
@@ -155,6 +234,11 @@ export default function Attendance() {
                 .eq('id', emp.user_id)
                 .single();
               fullName = profile?.full_name || 'Unknown';
+
+              if (emp.office_id) {
+                const { data: office } = await supabase.from('offices').select('name').eq('id', emp.office_id).single();
+                officeName = office?.name ?? null;
+              }
 
               if (emp.custom_work_start_time) scheduleStart = String(emp.custom_work_start_time).slice(0, 8);
               if (emp.custom_work_end_time) scheduleEnd = String(emp.custom_work_end_time).slice(0, 8);
@@ -178,6 +262,8 @@ export default function Attendance() {
                 id: emp?.id || '',
                 employee_id: emp?.employee_id || '',
                 full_name: fullName,
+                office_id: emp?.office_id ?? null,
+                office_name: officeName,
               },
               scheduleStart: scheduleStart ?? null,
               scheduleEnd: scheduleEnd ?? null,
@@ -195,6 +281,7 @@ export default function Attendance() {
 
   useEffect(() => {
     fetchEmployees();
+    fetchOffices();
   }, []);
 
   useEffect(() => {
@@ -217,6 +304,9 @@ export default function Attendance() {
         date: selectedDate,
         in_time: newAttendance.inTime || null,
         out_time: newAttendance.outTime || null,
+        check_in_at: dateTimeIso(selectedDate, newAttendance.inTime),
+        check_out_at: dateTimeIso(selectedDate, newAttendance.outTime),
+        total_work_minutes: calculateWorkMinutes(newAttendance.inTime, newAttendance.outTime),
         status: newAttendance.status,
       });
 
@@ -236,6 +326,78 @@ export default function Attendance() {
         description: error instanceof Error ? error.message : 'Failed to add attendance',
         variant: 'destructive',
       });
+    }
+  };
+
+  const openEditAttendance = (record: AttendanceRecord) => {
+    setEditingRecord(record);
+    setEditAttendance({
+      date: record.date,
+      inTime: normalizeTime(record.in_time),
+      outTime: normalizeTime(record.out_time),
+      status: record.status,
+    });
+  };
+
+  const handleUpdateAttendance = async () => {
+    if (!editingRecord) return;
+    setIsSavingEdit(true);
+    try {
+      const totalWorkMinutes = calculateWorkMinutes(editAttendance.inTime, editAttendance.outTime);
+      const { error } = await supabase
+        .from('attendance')
+        .update({
+          date: editAttendance.date,
+          in_time: editAttendance.inTime || null,
+          out_time: editAttendance.outTime || null,
+          check_in_at: dateTimeIso(editAttendance.date, editAttendance.inTime),
+          check_out_at: dateTimeIso(editAttendance.date, editAttendance.outTime),
+          total_work_minutes: totalWorkMinutes,
+          status: editAttendance.status,
+        })
+        .eq('id', editingRecord.id);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Attendance updated',
+        description: `${editingRecord.employee.full_name}'s record was saved.`,
+      });
+      setEditingRecord(null);
+      fetchAttendance();
+    } catch (error: unknown) {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to update attendance',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const handleDeleteAttendance = async (record: AttendanceRecord) => {
+    const confirmed = window.confirm(`Delete attendance record for ${record.employee.full_name} on ${format(new Date(record.date + 'T12:00:00'), 'MMM d, yyyy')}?`);
+    if (!confirmed) return;
+
+    setDeletingRecordId(record.id);
+    try {
+      const { error } = await supabase.from('attendance').delete().eq('id', record.id);
+      if (error) throw error;
+
+      toast({
+        title: 'Attendance deleted',
+        description: `${record.employee.full_name}'s record was removed.`,
+      });
+      fetchAttendance();
+    } catch (error: unknown) {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to delete attendance',
+        variant: 'destructive',
+      });
+    } finally {
+      setDeletingRecordId(null);
     }
   };
 
@@ -376,6 +538,25 @@ export default function Attendance() {
     return badges;
   };
 
+  const filteredAttendance = attendance.filter((record) => {
+    const q = filters.search.trim().toLowerCase();
+    const matchesSearch = !q
+      || record.employee.full_name.toLowerCase().includes(q)
+      || record.employee.employee_id.toLowerCase().includes(q);
+    const matchesOffice = filters.officeId === '_all'
+      || (filters.officeId === '_unassigned' ? !record.employee.office_id : record.employee.office_id === filters.officeId);
+    const matchesStatus = filters.status === '_all' || record.status === filters.status;
+
+    const from = timeToMinutes(filters.timeFrom);
+    const to = timeToMinutes(filters.timeTo);
+    const inMinutes = timeToMinutes(record.in_time);
+    const outMinutes = timeToMinutes(record.out_time);
+    const matchesTimeFrom = from === null || (inMinutes !== null && inMinutes >= from) || (outMinutes !== null && outMinutes >= from);
+    const matchesTimeTo = to === null || (inMinutes !== null && inMinutes <= to) || (outMinutes !== null && outMinutes <= to);
+
+    return matchesSearch && matchesOffice && matchesStatus && matchesTimeFrom && matchesTimeTo;
+  });
+
   return (
     <div className="p-4 md:p-8 space-y-6">
       {/* Header */}
@@ -410,7 +591,7 @@ export default function Attendance() {
                   <SelectContent>
                     {employees.map((emp) => (
                       <SelectItem key={emp.id} value={emp.id}>
-                        {emp.full_name} ({emp.employee_id})
+                        {emp.full_name} ({emp.employee_id}){emp.office_name ? ` - ${emp.office_name}` : ''}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -576,21 +757,103 @@ export default function Attendance() {
         </CardContent>
       </Card>
 
-      {/* Date Picker */}
+      {/* Filters */}
       <Card className="card-elevated">
         <CardContent className="pt-6">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Calendar className="h-5 w-5 text-muted-foreground" />
-              <Input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="w-auto min-w-[150px]"
-              />
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Filter className="h-5 w-5 text-muted-foreground" />
+                <h2 className="font-semibold">Filters</h2>
+              </div>
+              <Button variant="outline" size="sm" onClick={resetFilters} className="w-full sm:w-auto">
+                <RotateCcw className="h-4 w-4 mr-2" />
+                Reset
+              </Button>
             </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4">
+              <div className="space-y-2">
+                <Label>Date</Label>
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-5 w-5 text-muted-foreground" />
+                  <Input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2 xl:col-span-2">
+                <Label>Search</Label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={filters.search}
+                    onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                    placeholder="Employee name or ID"
+                    className="pl-9"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Office</Label>
+                <Select value={filters.officeId} onValueChange={(value) => setFilters({ ...filters, officeId: value })}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_all">All offices</SelectItem>
+                    <SelectItem value="_unassigned">No office</SelectItem>
+                    {offices.map((office) => (
+                      <SelectItem key={office.id} value={office.id}>
+                        {office.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select value={filters.status} onValueChange={(value) => setFilters({ ...filters, status: value })}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_all">All statuses</SelectItem>
+                    <SelectItem value="present">Present</SelectItem>
+                    <SelectItem value="absent">Absent</SelectItem>
+                    <SelectItem value="half_day">Half Day</SelectItem>
+                    <SelectItem value="leave">Leave</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 md:col-span-2 xl:col-span-1">
+                <div className="space-y-2">
+                  <Label>From</Label>
+                  <Input
+                    type="time"
+                    value={filters.timeFrom}
+                    onChange={(e) => setFilters({ ...filters, timeFrom: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>To</Label>
+                  <Input
+                    type="time"
+                    value={filters.timeTo}
+                    onChange={(e) => setFilters({ ...filters, timeTo: e.target.value })}
+                  />
+                </div>
+              </div>
+            </div>
+
             <Badge variant="secondary" className="text-sm w-fit">
-              {attendance.length} records
+              {filteredAttendance.length} of {attendance.length} records
             </Badge>
           </div>
         </CardContent>
@@ -613,6 +876,14 @@ export default function Attendance() {
                 Mark attendance
               </Button>
             </div>
+          ) : filteredAttendance.length === 0 ? (
+            <div className="p-8 text-center">
+              <Search className="h-12 w-12 mx-auto mb-3 text-muted-foreground/50" />
+              <p className="text-muted-foreground">No attendance records match these filters</p>
+              <Button variant="outline" className="mt-4" onClick={resetFilters}>
+                Clear filters
+              </Button>
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <Table>
@@ -620,13 +891,15 @@ export default function Attendance() {
                 <TableRow>
                   <TableHead>Employee</TableHead>
                   <TableHead>Employee ID</TableHead>
+                  <TableHead>Office</TableHead>
                   <TableHead>In Time</TableHead>
                   <TableHead>Out Time</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {attendance.map((record) => (
+                {filteredAttendance.map((record) => (
                   <TableRow key={record.id}>
                     <TableCell className="font-medium">
                       {record.employee.full_name}
@@ -636,12 +909,30 @@ export default function Attendance() {
                         {record.employee.employee_id}
                       </code>
                     </TableCell>
+                    <TableCell>{record.employee.office_name ?? 'No office'}</TableCell>
                     <TableCell>{formatTime12h(record.in_time)}</TableCell>
                     <TableCell>{formatTime12h(record.out_time)}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1.5 items-center">
                         {getStatusBadge(record.status)}
                         {getTimingBadges(record)}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-2">
+                        <Button variant="ghost" size="icon" onClick={() => openEditAttendance(record)} title="Edit attendance">
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => handleDeleteAttendance(record)}
+                          disabled={deletingRecordId === record.id}
+                          title="Delete attendance"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -652,6 +943,81 @@ export default function Attendance() {
           )}
         </CardContent>
       </Card>
+
+      {/* Edit attendance modal */}
+      <Dialog open={!!editingRecord} onOpenChange={(open) => !open && setEditingRecord(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Attendance</DialogTitle>
+          </DialogHeader>
+          {editingRecord && (
+            <div className="space-y-4 pt-2">
+              <div>
+                <p className="font-medium">{editingRecord.employee.full_name}</p>
+                <p className="text-sm text-muted-foreground">
+                  {editingRecord.employee.employee_id}
+                  {editingRecord.employee.office_name ? ` · ${editingRecord.employee.office_name}` : ''}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Date</Label>
+                <Input
+                  type="date"
+                  value={editAttendance.date}
+                  onChange={(e) => setEditAttendance({ ...editAttendance, date: e.target.value })}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>In Time</Label>
+                  <Input
+                    type="time"
+                    value={editAttendance.inTime}
+                    onChange={(e) => setEditAttendance({ ...editAttendance, inTime: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Out Time</Label>
+                  <Input
+                    type="time"
+                    value={editAttendance.outTime}
+                    onChange={(e) => setEditAttendance({ ...editAttendance, outTime: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select
+                  value={editAttendance.status}
+                  onValueChange={(value) => setEditAttendance({ ...editAttendance, status: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="present">Present</SelectItem>
+                    <SelectItem value="absent">Absent</SelectItem>
+                    <SelectItem value="half_day">Half Day</SelectItem>
+                    <SelectItem value="leave">Leave</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setEditingRecord(null)} disabled={isSavingEdit}>
+                  Cancel
+                </Button>
+                <Button variant="accent" onClick={handleUpdateAttendance} disabled={isSavingEdit}>
+                  {isSavingEdit ? 'Saving...' : 'Save changes'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Review early checkout modal */}
       <Dialog open={!!reviewModal} onOpenChange={(open) => !open && setReviewModal(null)}>
