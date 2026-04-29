@@ -27,6 +27,7 @@ import Permissions from "./pages/admin/Permissions";
 import Settings from "./pages/admin/Settings";
 import Recruitment from "./pages/admin/Recruitment";
 import WorkManagement from "./pages/admin/WorkManagement";
+import Logs from "./pages/admin/Logs";
 
 // Employee Pages
 import { EmployeeLayoutNew } from "./components/layout/EmployeeLayoutNew";
@@ -83,6 +84,7 @@ const App = () => (
               <Route path="settings" element={<Settings />} />
               <Route path="recruitment" element={<Recruitment />} />
               <Route path="work" element={<WorkManagement />} />
+              <Route path="logs" element={<Logs />} />
             </Route>
 
             {/* Employee routes */}

@@ -39,6 +39,117 @@ export type Database = {
   }
   public: {
     Tables: {
+      access_logs: {
+        Row: {
+          access_method: string | null
+          access_type: string
+          created_at: string
+          denial_reason: string | null
+          employee_id: string | null
+          id: string
+          ip_address: string | null
+          location_data: Json | null
+          office_id: string
+          success: boolean
+          timestamp: string
+          user_agent: string | null
+        }
+        Insert: {
+          access_method?: string | null
+          access_type: string
+          created_at?: string
+          denial_reason?: string | null
+          employee_id?: string | null
+          id?: string
+          ip_address?: string | null
+          location_data?: Json | null
+          office_id: string
+          success?: boolean
+          timestamp?: string
+          user_agent?: string | null
+        }
+        Update: {
+          access_method?: string | null
+          access_type?: string
+          created_at?: string
+          denial_reason?: string | null
+          employee_id?: string | null
+          id?: string
+          ip_address?: string | null
+          location_data?: Json | null
+          office_id?: string
+          success?: boolean
+          timestamp?: string
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "access_logs_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "access_logs_office_id_fkey"
+            columns: ["office_id"]
+            isOneToOne: false
+            referencedRelation: "offices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      audit_logs: {
+        Row: {
+          actor_email: string | null
+          actor_name: string | null
+          actor_user_id: string | null
+          category: string
+          created_at: string
+          event_type: string
+          id: string
+          ip_address: string | null
+          message: string
+          metadata: Json
+          severity: string
+          target_id: string | null
+          target_table: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          actor_email?: string | null
+          actor_name?: string | null
+          actor_user_id?: string | null
+          category?: string
+          created_at?: string
+          event_type: string
+          id?: string
+          ip_address?: string | null
+          message: string
+          metadata?: Json
+          severity?: string
+          target_id?: string | null
+          target_table?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          actor_email?: string | null
+          actor_name?: string | null
+          actor_user_id?: string | null
+          category?: string
+          created_at?: string
+          event_type?: string
+          id?: string
+          ip_address?: string | null
+          message?: string
+          metadata?: Json
+          severity?: string
+          target_id?: string | null
+          target_table?: string | null
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
       attendance: {
         Row: {
           attendance_time_zone: string | null

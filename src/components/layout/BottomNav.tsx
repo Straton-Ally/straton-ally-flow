@@ -36,6 +36,7 @@ const moreNavItems = [
   { label: 'Leave Management', href: '/admin/leave' },
   { label: 'Recruitment', href: '/admin/recruitment' },
   { label: 'Work Management', href: '/admin/work' },
+  { label: 'Logs', href: '/admin/logs' },
   { label: 'Settings', href: '/admin/settings' },
 ];
 
