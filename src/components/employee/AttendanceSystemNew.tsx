@@ -614,6 +614,9 @@ export function AttendanceSystem() {
           check_in_at: nowIso,
           check_in_ip: refreshed.info.currentIP,
           check_in_location: refreshed.geo,
+          last_verified_at: nowIso,
+          last_verified_ip: refreshed.info.currentIP,
+          last_verified_location: refreshed.geo,
           status: 'present',
           break_start_at: null,
           break_total_minutes: 0,
@@ -736,6 +739,9 @@ export function AttendanceSystem() {
           check_out_at: nowIso,
           check_out_ip: refreshed.info.currentIP,
           check_out_location: refreshed.geo,
+          last_verified_at: nowIso,
+          last_verified_ip: refreshed.info.currentIP,
+          last_verified_location: refreshed.geo,
           break_start_at: null,
           break_total_minutes: breakTotal,
           break_duration: breakDurationStr,
@@ -795,7 +801,15 @@ export function AttendanceSystem() {
     setIsLoading(true);
     try {
       const nowIso = new Date().toISOString();
-      const { error } = await supabase.from('attendance').update({ break_start_at: nowIso }).eq('id', attendance.id);
+      const { error } = await supabase
+        .from('attendance')
+        .update({
+          break_start_at: nowIso,
+          last_verified_at: nowIso,
+          last_verified_ip: refreshed.info.currentIP,
+          last_verified_location: refreshed.geo,
+        })
+        .eq('id', attendance.id);
       if (error) throw error;
 
       setAttendance((prev) => (prev ? { ...prev, break_start_at: nowIso } : prev));
@@ -870,7 +884,14 @@ export function AttendanceSystem() {
 
       const { error } = await supabase
         .from('attendance')
-        .update({ break_start_at: null, break_total_minutes: newTotal, break_duration: breakDurationStr })
+        .update({
+          break_start_at: null,
+          break_total_minutes: newTotal,
+          break_duration: breakDurationStr,
+          last_verified_at: new Date().toISOString(),
+          last_verified_ip: refreshed.info.currentIP,
+          last_verified_location: refreshed.geo,
+        })
         .eq('id', attendance.id);
 
       if (error) throw error;

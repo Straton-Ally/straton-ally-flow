@@ -55,6 +55,9 @@ export type Database = {
           employee_id: string
           id: string
           in_time: string | null
+          last_verified_at: string | null
+          last_verified_ip: string | null
+          last_verified_location: Json | null
           notes: string | null
           out_time: string | null
           status: string
@@ -75,6 +78,9 @@ export type Database = {
           employee_id: string
           id?: string
           in_time?: string | null
+          last_verified_at?: string | null
+          last_verified_ip?: string | null
+          last_verified_location?: Json | null
           notes?: string | null
           out_time?: string | null
           status: string
@@ -95,6 +101,9 @@ export type Database = {
           employee_id?: string
           id?: string
           in_time?: string | null
+          last_verified_at?: string | null
+          last_verified_ip?: string | null
+          last_verified_location?: Json | null
           notes?: string | null
           out_time?: string | null
           status?: string
