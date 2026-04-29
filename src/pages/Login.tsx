@@ -3,11 +3,18 @@ import { Link, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Eye, EyeOff, Loader2, ArrowRight } from 'lucide-react';
+import { Eye, EyeOff, Loader2, ArrowRight, Download, Share, PlusSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
+import { usePWAInstall } from '@/hooks/usePWAInstall';
 import { signIn, getRedirectPath, getUserRole } from '@/lib/auth';
 import { AnimatedCharacters } from '@/components/ui/animated-characters';
 const loginSchema = z.object({
@@ -19,7 +26,9 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
+  const [isInstallHelpOpen, setIsInstallHelpOpen] = useState(false);
   const navigate = useNavigate();
+  const { canShowInstall, isInstallable, isIOS, install } = usePWAInstall();
   const {
     toast
   } = useToast();
@@ -68,6 +77,20 @@ export default function Login() {
       setIsLoading(false);
     }
   };
+  const handleInstallClick = async () => {
+    if (isInstallable) {
+      const installed = await install();
+      if (!installed) {
+        toast({
+          title: 'Install not completed',
+          description: 'You can install FLOW from your browser menu anytime.',
+        });
+      }
+      return;
+    }
+
+    setIsInstallHelpOpen(true);
+  };
   return <div className="min-h-screen flex">
       {/* Left side - Animated Characters */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-accent/10 via-background to-muted/20 flex-col">
@@ -112,6 +135,43 @@ export default function Login() {
                 Sign in to access your dashboard
               </p>
             </div>
+
+            {canShowInstall && (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full h-12 justify-center gap-2 border-accent/40 bg-accent/5 text-foreground hover:bg-accent/10"
+                  onClick={handleInstallClick}
+                >
+                  <Download className="h-5 w-5" />
+                  Install FLOW app
+                </Button>
+                <Dialog open={isInstallHelpOpen} onOpenChange={setIsInstallHelpOpen}>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Install FLOW app</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4 text-sm text-muted-foreground">
+                    {isIOS ? (
+                      <>
+                        <div className="flex gap-3">
+                          <Share className="h-5 w-5 shrink-0 text-foreground" />
+                          <p>Open this page in Safari, tap Share, then choose Add to Home Screen.</p>
+                        </div>
+                        <div className="flex gap-3">
+                          <PlusSquare className="h-5 w-5 shrink-0 text-foreground" />
+                          <p>Confirm the name and tap Add. FLOW will open like a normal app from your home screen.</p>
+                        </div>
+                      </>
+                    ) : (
+                      <p>Use your browser menu and choose Install app or Add to Home screen.</p>
+                    )}
+                  </div>
+                </DialogContent>
+                </Dialog>
+              </>
+            )}
 
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
               <div className="space-y-2">

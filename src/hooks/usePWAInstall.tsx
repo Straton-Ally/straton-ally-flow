@@ -13,6 +13,14 @@ export const usePWAInstall = () => {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstallable, setIsInstallable] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
+
+  const checkInstalled = () => {
+    const isStandaloneDisplay = window.matchMedia('(display-mode: standalone)').matches;
+    const isFullscreenDisplay = window.matchMedia('(display-mode: fullscreen)').matches;
+    const isAppleStandalone = 'standalone' in window.navigator && Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone);
+    setIsInstalled(isStandaloneDisplay || isFullscreenDisplay || isAppleStandalone);
+  };
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: Event) => {
@@ -30,14 +38,23 @@ export const usePWAInstall = () => {
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     window.addEventListener('appinstalled', handleAppInstalled);
 
-    // Check if app is already installed
-    if (window.matchMedia('(display-mode: standalone)').matches) {
-      setIsInstalled(true);
-    }
+    const userAgent = window.navigator.userAgent.toLowerCase();
+    const platform = window.navigator.platform?.toLowerCase() ?? '';
+    const isAppleTouchDevice = /iphone|ipad|ipod/.test(userAgent) || (platform === 'macintel' && window.navigator.maxTouchPoints > 1);
+    setIsIOS(isAppleTouchDevice);
+
+    checkInstalled();
+
+    const standaloneMedia = window.matchMedia('(display-mode: standalone)');
+    const fullscreenMedia = window.matchMedia('(display-mode: fullscreen)');
+    standaloneMedia.addEventListener('change', checkInstalled);
+    fullscreenMedia.addEventListener('change', checkInstalled);
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
       window.removeEventListener('appinstalled', handleAppInstalled);
+      standaloneMedia.removeEventListener('change', checkInstalled);
+      fullscreenMedia.removeEventListener('change', checkInstalled);
     };
   }, []);
 
@@ -61,6 +78,8 @@ export const usePWAInstall = () => {
   return {
     isInstallable,
     isInstalled,
+    isIOS,
+    canShowInstall: !isInstalled && (isInstallable || isIOS),
     install
   };
 };
