@@ -65,6 +65,34 @@ interface DutySchedule {
   };
 }
 
+interface DutyScheduleSelectRow {
+  id: string;
+  employee_id: string;
+  office_id: string;
+  schedule_name: string;
+  shift_type: 'regular' | 'rotating' | 'flexible' | 'night';
+  start_time: string;
+  end_time: string;
+  break_duration: string | null;
+  work_days: string[] | null;
+  is_active: boolean;
+  effective_date: string;
+  expiry_date: string | null;
+  created_at: string;
+}
+
+interface EmployeeSelectRow {
+  id: string;
+  user_id: string;
+  employee_id: string;
+}
+
+interface ProfileSelectRow {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+}
+
 export default function DutySchedules() {
   const [schedules, setSchedules] = useState<DutySchedule[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -72,62 +100,79 @@ export default function DutySchedules() {
   const { toast } = useToast();
 
   const fetchSchedules = async () => {
+    setIsLoading(true);
     try {
-      // Mock data for now - in real implementation this would fetch from database
-      const mockSchedules: DutySchedule[] = [
-        {
-          id: '1',
-          employee_id: '1',
-          office_id: '1',
-          schedule_name: 'Regular Day Shift',
-          shift_type: 'regular',
-          start_time: '09:00:00',
-          end_time: '17:00:00',
-          break_duration: '01:00:00',
-          work_days: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
-          is_active: true,
-          effective_date: '2024-01-01',
-          expiry_date: null,
-          created_at: new Date().toISOString(),
-          employee: {
-            employee_id: 'EMP001',
-            profile: {
-              full_name: 'John Doe',
-              email: 'john@example.com',
-            },
-          },
-          office: {
-            name: 'Headquarters',
-          },
-        },
-        {
-          id: '2',
-          employee_id: '2',
-          office_id: '1',
-          schedule_name: 'Night Shift',
-          shift_type: 'night',
-          start_time: '22:00:00',
-          end_time: '06:00:00',
-          break_duration: '00:30:00',
-          work_days: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
-          is_active: true,
-          effective_date: '2024-01-01',
-          expiry_date: null,
-          created_at: new Date().toISOString(),
-          employee: {
-            employee_id: 'EMP002',
-            profile: {
-              full_name: 'Jane Smith',
-              email: 'jane@example.com',
-            },
-          },
-          office: {
-            name: 'Headquarters',
-          },
-        },
-      ];
+      const scheduleClient = supabase as unknown as {
+        from: (table: 'duty_schedules') => {
+          select: (columns: string) => {
+            order: (
+              column: 'created_at',
+              options: { ascending: boolean },
+            ) => Promise<{ data: DutyScheduleSelectRow[] | null; error: Error | null }>;
+          };
+        };
+      };
+      const { data, error } = await scheduleClient
+        .from('duty_schedules')
+        .select('id,employee_id,office_id,schedule_name,shift_type,start_time,end_time,break_duration,work_days,is_active,effective_date,expiry_date,created_at')
+        .order('created_at', { ascending: false });
 
-      setSchedules(mockSchedules);
+      if (error) throw error;
+
+      const rows = data ?? [];
+      const employeeIds = Array.from(new Set(rows.map((row) => row.employee_id)));
+      const officeIds = Array.from(new Set(rows.map((row) => row.office_id)));
+
+      const { data: employeesData, error: employeesError } = employeeIds.length
+        ? await supabase.from('employees').select('id,user_id,employee_id').in('id', employeeIds)
+        : { data: [], error: null };
+      if (employeesError) throw employeesError;
+
+      const employeeRows = (employeesData ?? []) as EmployeeSelectRow[];
+      const userIds = employeeRows.map((employee) => employee.user_id);
+
+      const { data: profilesData, error: profilesError } = userIds.length
+        ? await supabase.from('profiles').select('id,full_name,email').in('id', userIds)
+        : { data: [], error: null };
+      if (profilesError) throw profilesError;
+
+      const { data: officesData, error: officesError } = officeIds.length
+        ? await supabase.from('offices').select('id,name').in('id', officeIds)
+        : { data: [], error: null };
+      if (officesError) throw officesError;
+
+      const employeesById = new Map<string, EmployeeSelectRow>();
+      for (const employee of employeeRows) employeesById.set(employee.id, employee);
+
+      const profilesById = new Map<string, ProfileSelectRow>();
+      for (const profile of (profilesData ?? []) as ProfileSelectRow[]) profilesById.set(profile.id, profile);
+
+      const officesById = new Map<string, { id: string; name: string }>();
+      for (const office of (officesData ?? []) as { id: string; name: string }[]) officesById.set(office.id, office);
+
+      setSchedules(
+        rows.map((row) => {
+          const employee = employeesById.get(row.employee_id);
+          const profile = employee ? profilesById.get(employee.user_id) : null;
+          const office = officesById.get(row.office_id);
+
+          return {
+            ...row,
+            break_duration: row.break_duration ?? '00:00:00',
+            work_days: row.work_days ?? [],
+            employee: {
+              employee_id: employee?.employee_id ?? '—',
+              profile: {
+                full_name: profile?.full_name ?? 'Unknown employee',
+                email: profile?.email ?? '',
+              },
+            },
+            office: {
+              name: office?.name ?? 'Unknown office',
+            },
+          };
+        }),
+      );
     } catch (error) {
       console.error('Error fetching duty schedules:', error);
       toast({
@@ -153,7 +198,15 @@ export default function DutySchedules() {
 
   const handleStatusToggle = async (scheduleId: string, currentStatus: boolean) => {
     try {
-      // Mock update - in real implementation this would update the database
+      const scheduleClient = supabase as unknown as {
+        from: (table: 'duty_schedules') => {
+          update: (values: { is_active: boolean }) => {
+            eq: (column: 'id', value: string) => Promise<{ error: Error | null }>;
+          };
+        };
+      };
+      const { error } = await scheduleClient.from('duty_schedules').update({ is_active: !currentStatus }).eq('id', scheduleId);
+      if (error) throw error;
       toast({
         title: 'Status updated',
         description: `Schedule has been ${!currentStatus ? 'activated' : 'deactivated'}`,
@@ -172,7 +225,15 @@ export default function DutySchedules() {
     if (!confirm('Are you sure you want to delete this duty schedule?')) return;
 
     try {
-      // Mock delete - in real implementation this would delete from database
+      const scheduleClient = supabase as unknown as {
+        from: (table: 'duty_schedules') => {
+          delete: () => {
+            eq: (column: 'id', value: string) => Promise<{ error: Error | null }>;
+          };
+        };
+      };
+      const { error } = await scheduleClient.from('duty_schedules').delete().eq('id', scheduleId);
+      if (error) throw error;
       toast({
         title: 'Schedule deleted',
         description: 'Duty schedule has been removed successfully',

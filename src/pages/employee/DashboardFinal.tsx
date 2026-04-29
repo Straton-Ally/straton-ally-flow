@@ -5,7 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { endOfMonth, format, startOfMonth } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
-import { mockTasks } from '@/data/mockTasks';
+import { fetchWorkTasks } from '@/lib/work-tasks';
 
 export default function EmployeeDashboard() {
   const { user } = useAuth();
@@ -15,6 +15,8 @@ export default function EmployeeDashboard() {
   const [monthPresentDays, setMonthPresentDays] = useState<number | null>(null);
   const [salaryAmount, setSalaryAmount] = useState<number | null>(null);
   const [salaryType, setSalaryType] = useState<string | null>(null);
+  const [tasksTotal, setTasksTotal] = useState(0);
+  const [tasksPending, setTasksPending] = useState(0);
 
   const currentHour = new Date().getHours();
   const greeting =
@@ -69,6 +71,8 @@ export default function EmployeeDashboard() {
         setMonthPresentDays(null);
         setSalaryAmount(null);
         setSalaryType(null);
+        setTasksTotal(0);
+        setTasksPending(0);
         return;
       }
 
@@ -109,6 +113,10 @@ export default function EmployeeDashboard() {
         setSalaryAmount(null);
         setSalaryType(null);
       }
+
+      const employeeTasks = await fetchWorkTasks({ assigneeId: employee.id });
+      setTasksTotal(employeeTasks.length);
+      setTasksPending(employeeTasks.filter((task) => task.status !== 'completed').length);
     };
 
     fetchTodayStatus();
@@ -148,9 +156,6 @@ export default function EmployeeDashboard() {
         ? `${formatCurrency(salaryAmount)}/hr`
         : formatCurrency(salaryAmount);
 
-  const tasksTotal = mockTasks.length;
-  const tasksPending = mockTasks.filter((t) => t.status !== 'completed').length;
-
   const quickActions = [
     {
       title: 'Mark Attendance',
@@ -168,28 +173,28 @@ export default function EmployeeDashboard() {
     },
     {
       title: 'Team',
-      subtitle: '12 online',
+      subtitle: 'Open team space',
       icon: Users,
       href: '/employee/team',
       indicatorClass: 'bg-success',
     },
     {
       title: 'Salary',
-      subtitle: 'January paid',
+      subtitle: salaryLabel,
       icon: Banknote,
       href: '/employee/salary',
       indicatorClass: 'bg-success',
     },
     {
       title: 'Notifications',
-      subtitle: '5 unread',
+      subtitle: 'View updates',
       icon: Bell,
       href: '/employee/notifications',
       indicatorClass: 'bg-success',
     },
     {
       title: 'Chat',
-      subtitle: '2 active',
+      subtitle: 'Open messages',
       icon: MessageSquare,
       href: '/employee/chat',
       indicatorClass: 'bg-blue-500',

@@ -92,26 +92,7 @@ export function SalaryProgress() {
         })));
       }
 
-      // Generate mock payslip data (in real app, this would come from database)
-      const mockPayslips: Payslip[] = [];
-      for (let month = 1; month <= 12; month++) {
-        const monthDate = new Date(parseInt(selectedYear), month - 1, 1);
-        const isPastMonth = monthDate < new Date();
-        const isCurrentMonth = monthDate.getMonth() === new Date().getMonth() && 
-                              monthDate.getFullYear() === new Date().getFullYear();
-        
-        mockPayslips.push({
-          id: `${selectedYear}-${month}`,
-          month: format(monthDate, 'MMMM yyyy'),
-          basic_salary: currentSalaryData?.amount || 0,
-          allowances: Math.round((currentSalaryData?.amount || 0) * 0.2), // 20% allowances
-          deductions: Math.round((currentSalaryData?.amount || 0) * 0.1), // 10% deductions
-          net_salary: Math.round((currentSalaryData?.amount || 0) * 1.1), // Basic + allowances - deductions
-          payment_date: isPastMonth ? format(new Date(parseInt(selectedYear), month, 5), 'yyyy-MM-dd') : '',
-          status: isPastMonth ? 'paid' : isCurrentMonth ? 'processing' : 'pending'
-        });
-      }
-      setPayslips(mockPayslips);
+      setPayslips([]);
 
     } catch (error) {
       console.error('Error fetching salary data:', error);

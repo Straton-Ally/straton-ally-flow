@@ -11,7 +11,14 @@ import { Label } from '@/components/ui/label';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { mockTasks, type Task } from '@/data/mockTasks';
+import { supabase } from '@/integrations/supabase/client';
+import {
+  fetchEmployeeOptions,
+  fetchWorkTasks,
+  toDbStatus,
+  type EmployeeOption,
+  type WorkTask as Task,
+} from '@/lib/work-tasks';
 
 interface TaskColumn {
   id: string;
@@ -21,7 +28,9 @@ interface TaskColumn {
 }
 
 export function TaskManagement() {
-  const [tasks, setTasks] = useState<Task[]>(mockTasks);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [employeeOptions, setEmployeeOptions] = useState<EmployeeOption[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterPriority, setFilterPriority] = useState<string>('all');
   const [filterAssignee, setFilterAssignee] = useState<string>('all');
@@ -38,6 +47,27 @@ export function TaskManagement() {
     estimated_hours: 0
   });
   const { toast } = useToast();
+
+  const loadTasks = async () => {
+    setIsLoading(true);
+    try {
+      const [taskRows, employeeRows] = await Promise.all([fetchWorkTasks(), fetchEmployeeOptions()]);
+      setTasks(taskRows);
+      setEmployeeOptions(employeeRows);
+    } catch (error) {
+      toast({
+        title: 'Unable to load tasks',
+        description: error instanceof Error ? error.message : 'Failed to fetch work tasks.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadTasks();
+  }, []);
 
   const columns: TaskColumn[] = [
     {
@@ -115,61 +145,102 @@ export function TaskManagement() {
       return;
     }
 
-    const task: Task = {
-      id: Date.now().toString(),
-      title: newTask.title!,
-      description: newTask.description!,
-      status: newTask.status as Task['status'],
-      priority: newTask.priority as Task['priority'],
-      assignee: newTask.assignee!,
-      due_date: newTask.due_date!,
-      created_at: new Date().toISOString().split('T')[0],
-      updated_at: new Date().toISOString().split('T')[0],
-      tags: newTask.tags || [],
-      project: newTask.project || '',
-      estimated_hours: newTask.estimated_hours,
-      actual_hours: 0
-    };
+    void (async () => {
+      try {
+        const { data: authData, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
 
-    setTasks([...tasks, task]);
-    setNewTask({
-      title: '',
-      description: '',
-      status: 'todo',
-      priority: 'medium',
-      assignee: '',
-      due_date: '',
-      tags: [],
-      project: '',
-      estimated_hours: 0
-    });
-    setIsCreateDialogOpen(false);
-    
-    toast({
-      title: "Task Created",
-      description: "Your task has been created successfully.",
-    });
+        const assignee = employeeOptions.find((employee) => employee.full_name === newTask.assignee);
+        const { error } = await supabase.from('work_tasks').insert({
+          title: newTask.title!,
+          description: newTask.description || null,
+          status: toDbStatus(newTask.status as Task['status']),
+          priority: newTask.priority as Task['priority'],
+          assignee_id: assignee?.id ?? null,
+          creator_id: authData.user?.id ?? null,
+          due_date: newTask.due_date ? new Date(newTask.due_date).toISOString() : null,
+          time_spent: 0,
+          tags: newTask.tags || [],
+        });
+
+        if (error) throw error;
+
+        setNewTask({
+          title: '',
+          description: '',
+          status: 'todo',
+          priority: 'medium',
+          assignee: '',
+          due_date: '',
+          tags: [],
+          project: '',
+          estimated_hours: 0
+        });
+        setIsCreateDialogOpen(false);
+        await loadTasks();
+
+        toast({
+          title: "Task Created",
+          description: "Your task has been created successfully.",
+        });
+      } catch (error) {
+        toast({
+          title: 'Task not created',
+          description: error instanceof Error ? error.message : 'Failed to create task.',
+          variant: 'destructive',
+        });
+      }
+    })();
   };
 
   const handleStatusChange = (taskId: string, newStatus: Task['status']) => {
-    setTasks(tasks.map(task => 
-      task.id === taskId 
-        ? { ...task, status: newStatus, updated_at: new Date().toISOString().split('T')[0] }
-        : task
-    ));
-    
-    toast({
-      title: "Task Updated",
-      description: `Task moved to ${newStatus.replace('_', ' ')}.`,
-    });
+    void (async () => {
+      try {
+        const { error } = await supabase
+          .from('work_tasks')
+          .update({ status: toDbStatus(newStatus) })
+          .eq('id', taskId);
+
+        if (error) throw error;
+
+        setTasks(tasks.map(task => 
+          task.id === taskId 
+            ? { ...task, status: newStatus, updated_at: new Date().toISOString().split('T')[0] }
+            : task
+        ));
+        
+        toast({
+          title: "Task Updated",
+          description: `Task moved to ${newStatus.replace('_', ' ')}.`,
+        });
+      } catch (error) {
+        toast({
+          title: 'Task not updated',
+          description: error instanceof Error ? error.message : 'Failed to update task.',
+          variant: 'destructive',
+        });
+      }
+    })();
   };
 
   const handleDeleteTask = (taskId: string) => {
-    setTasks(tasks.filter(task => task.id !== taskId));
-    toast({
-      title: "Task Deleted",
-      description: "The task has been deleted.",
-    });
+    void (async () => {
+      try {
+        const { error } = await supabase.from('work_tasks').delete().eq('id', taskId);
+        if (error) throw error;
+        setTasks(tasks.filter(task => task.id !== taskId));
+        toast({
+          title: "Task Deleted",
+          description: "The task has been deleted.",
+        });
+      } catch (error) {
+        toast({
+          title: 'Task not deleted',
+          description: error instanceof Error ? error.message : 'You may not have permission to delete this task.',
+          variant: 'destructive',
+        });
+      }
+    })();
   };
 
   const TaskCard = ({ task }: { task: Task }) => (
@@ -281,12 +352,18 @@ export function TaskManagement() {
                 
                 <div>
                   <Label htmlFor="assignee">Assignee *</Label>
-                  <Input
-                    id="assignee"
-                    value={newTask.assignee}
-                    onChange={(e) => setNewTask({ ...newTask, assignee: e.target.value })}
-                    placeholder="Assign to"
-                  />
+                  <Select value={newTask.assignee || ''} onValueChange={(value) => setNewTask({ ...newTask, assignee: value })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Assign to" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {employeeOptions.map((employee) => (
+                        <SelectItem key={employee.id} value={employee.full_name}>
+                          {employee.full_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               
@@ -369,17 +446,22 @@ export function TaskManagement() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Assignees</SelectItem>
-            <SelectItem value="John Doe">John Doe</SelectItem>
-            <SelectItem value="Jane Smith">Jane Smith</SelectItem>
-            <SelectItem value="Mike Johnson">Mike Johnson</SelectItem>
-            <SelectItem value="Sarah Wilson">Sarah Wilson</SelectItem>
+            {employeeOptions.map((employee) => (
+              <SelectItem key={employee.id} value={employee.full_name}>
+                {employee.full_name}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
 
       {/* Kanban Board */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {columns.map(column => (
+        {isLoading ? (
+          <Card className="md:col-span-2 lg:col-span-4">
+            <CardContent className="py-10 text-center text-muted-foreground">Loading tasks...</CardContent>
+          </Card>
+        ) : columns.map(column => (
           <Card key={column.id}>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium flex items-center justify-between">

@@ -198,6 +198,40 @@ interface AttendanceTimeZone {
   is_active: boolean;
 }
 
+interface AccessControlRow {
+  id: string;
+  employee_id: string;
+  office_id: string;
+  access_level: 'full' | 'restricted' | 'read_only';
+  allowed_areas: string[] | null;
+  ip_override: boolean;
+  is_active: boolean;
+  employee: {
+    employee_id: string;
+    profile: {
+      full_name: string;
+      email: string;
+    };
+  };
+  office: {
+    name: string;
+    settings: {
+      require_ip_whitelist: boolean;
+      geo_fencing_enabled: boolean;
+    };
+  };
+}
+
+interface AccessControlSelectRow {
+  id: string;
+  employee_id: string;
+  office_id: string;
+  access_level: 'full' | 'restricted' | 'read_only';
+  allowed_areas: string[] | null;
+  ip_override: boolean;
+  is_active: boolean;
+}
+
 const WORK_DAYS_OPTIONS = [
   { value: 'monday', label: 'Mon' },
   { value: 'tuesday', label: 'Tue' },
@@ -207,39 +241,6 @@ const WORK_DAYS_OPTIONS = [
   { value: 'saturday', label: 'Sat' },
   { value: 'sunday', label: 'Sun' },
 ] as const;
-
-const mockAccessControls = [
-  {
-    id: '1',
-    access_level: 'full',
-    allowed_areas: ['main_office', 'server_room', 'conference_rooms'],
-    ip_override: true,
-    is_active: true,
-    employee: {
-      employee_id: 'EMP001',
-      profile: { full_name: 'John Doe', email: 'john@example.com' },
-    },
-    office: {
-      name: 'Headquarters',
-      settings: { require_ip_whitelist: false, geo_fencing_enabled: false },
-    },
-  },
-  {
-    id: '2',
-    access_level: 'restricted',
-    allowed_areas: ['main_office', 'break_room'],
-    ip_override: false,
-    is_active: true,
-    employee: {
-      employee_id: 'EMP002',
-      profile: { full_name: 'Jane Smith', email: 'jane@example.com' },
-    },
-    office: {
-      name: 'Headquarters',
-      settings: { require_ip_whitelist: true, geo_fencing_enabled: true },
-    },
-  },
-];
 
 type EmployeeSortField = 'name' | 'employee_id' | 'joining_date' | 'department' | 'designation' | 'status';
 type SortOrder = 'asc' | 'desc';
@@ -261,8 +262,10 @@ export default function Recruitment() {
   const [assignmentsOfficeId, setAssignmentsOfficeId] = useState<string>('');
   const [offices, setOffices] = useState<Office[]>([]);
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
+  const [accessControls, setAccessControls] = useState<AccessControlRow[]>([]);
   const [isOfficesLoading, setIsOfficesLoading] = useState(true);
   const [isEmployeesLoading, setIsEmployeesLoading] = useState(true);
+  const [isAccessControlsLoading, setIsAccessControlsLoading] = useState(true);
   const [isOfficeDialogOpen, setIsOfficeDialogOpen] = useState(false);
   const [editingOffice, setEditingOffice] = useState<Office | null>(null);
   const [officeForm, setOfficeForm] = useState({
@@ -332,11 +335,33 @@ export default function Recruitment() {
     return 'Unknown error';
   };
 
-  const handleStatusToggle = (type: string, id: string, currentStatus: boolean) => {
-    toast({
-      title: 'Status updated',
-      description: `${type} has been ${!currentStatus ? 'activated' : 'deactivated'}`,
-    });
+  const handleAccessStatusToggle = async (id: string, currentStatus: boolean) => {
+    try {
+      const accessClient = supabase as unknown as {
+        from: (table: 'access_control') => {
+          update: (values: { is_active: boolean }) => {
+            eq: (column: 'id', value: string) => Promise<{ error: Error | null }>;
+          };
+        };
+      };
+
+      const { error } = await accessClient.from('access_control').update({ is_active: !currentStatus }).eq('id', id);
+      if (error) throw error;
+
+      setAccessControls((current) =>
+        current.map((access) => (access.id === id ? { ...access, is_active: !currentStatus } : access)),
+      );
+      toast({
+        title: 'Access updated',
+        description: `Access has been ${!currentStatus ? 'activated' : 'deactivated'}`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: getErrorMessage(error) || 'Failed to update access control',
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleDelete = (type: string, id: string) => {
@@ -519,6 +544,110 @@ export default function Recruitment() {
     }
   };
 
+  const fetchAccessControls = async () => {
+    setIsAccessControlsLoading(true);
+    try {
+      const accessClient = supabase as unknown as {
+        from: (table: 'access_control') => {
+          select: (columns: string) => {
+            order: (
+              column: 'created_at',
+              options: { ascending: boolean },
+            ) => Promise<{ data: AccessControlSelectRow[] | null; error: Error | null }>;
+          };
+        };
+      };
+
+      const { data, error } = await accessClient
+        .from('access_control')
+        .select('id,employee_id,office_id,access_level,allowed_areas,ip_override,is_active')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const rows = data ?? [];
+      const employeeIds = Array.from(new Set(rows.map((row) => row.employee_id)));
+      const officeIds = Array.from(new Set(rows.map((row) => row.office_id)));
+
+      const { data: employeesData, error: employeesError } = employeeIds.length
+        ? await supabase.from('employees').select('id,user_id,employee_id').in('id', employeeIds)
+        : { data: [], error: null };
+      if (employeesError) throw employeesError;
+
+      const employeeRows = (employeesData ?? []) as EmployeeSelectRow[];
+      const userIds = employeeRows.map((employee) => employee.user_id);
+
+      const { data: profilesData, error: profilesError } = userIds.length
+        ? await supabase.from('profiles').select('id,full_name,email,status').in('id', userIds)
+        : { data: [], error: null };
+      if (profilesError) throw profilesError;
+
+      const { data: officesData, error: officesError } = officeIds.length
+        ? await supabase
+            .from('offices')
+            .select('id,name,office_settings(require_ip_whitelist,geo_fencing_enabled)')
+            .in('id', officeIds)
+        : { data: [], error: null };
+      if (officesError) throw officesError;
+
+      const employeesById = new Map<string, EmployeeSelectRow>();
+      for (const employee of employeeRows) employeesById.set(employee.id, employee);
+
+      const profilesById = new Map<string, ProfileSelectRow>();
+      for (const profile of (profilesData ?? []) as ProfileSelectRow[]) profilesById.set(profile.id, profile);
+
+      const officesById = new Map<string, { id: string; name: string; office_settings: Partial<OfficeSettingsSelectRow> | Partial<OfficeSettingsSelectRow>[] | null }>();
+      for (const office of (officesData ?? []) as { id: string; name: string; office_settings: Partial<OfficeSettingsSelectRow> | Partial<OfficeSettingsSelectRow>[] | null }[]) {
+        officesById.set(office.id, office);
+      }
+
+      setAccessControls(
+        rows.map((row) => {
+          const employee = employeesById.get(row.employee_id);
+          const profile = employee ? profilesById.get(employee.user_id) : null;
+          const office = officesById.get(row.office_id);
+          const settings = office
+            ? Array.isArray(office.office_settings)
+              ? office.office_settings[0]
+              : office.office_settings
+            : null;
+
+          return {
+            id: row.id,
+            employee_id: row.employee_id,
+            office_id: row.office_id,
+            access_level: row.access_level,
+            allowed_areas: row.allowed_areas ?? [],
+            ip_override: row.ip_override,
+            is_active: row.is_active,
+            employee: {
+              employee_id: employee?.employee_id ?? '—',
+              profile: {
+                full_name: profile?.full_name ?? 'Unknown employee',
+                email: profile?.email ?? '',
+              },
+            },
+            office: {
+              name: office?.name ?? 'Unknown office',
+              settings: {
+                require_ip_whitelist: Boolean(settings?.require_ip_whitelist),
+                geo_fencing_enabled: Boolean(settings?.geo_fencing_enabled),
+              },
+            },
+          };
+        }),
+      );
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: getErrorMessage(error) || 'Failed to load access controls',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsAccessControlsLoading(false);
+    }
+  };
+
   const fetchScheduleTemplates = async () => {
     setIsScheduleTemplatesLoading(true);
     try {
@@ -581,6 +710,7 @@ export default function Recruitment() {
   useEffect(() => {
     fetchOffices();
     fetchEmployees();
+    fetchAccessControls();
     fetchScheduleTemplates();
     fetchDepartmentsOps();
     fetchAttendanceTimeZones();
@@ -1304,7 +1434,7 @@ export default function Recruitment() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Access Rules</p>
-                <p className="text-2xl font-bold">{mockAccessControls.length}</p>
+                <p className="text-2xl font-bold">{accessControls.length}</p>
               </div>
               <Shield className="h-8 w-8 text-purple-600" />
             </div>
@@ -2213,7 +2343,11 @@ export default function Recruitment() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {mockAccessControls.map((access) => (
+                {isAccessControlsLoading ? (
+                  <div className="text-center text-muted-foreground py-8">Loading access controls...</div>
+                ) : accessControls.length === 0 ? (
+                  <div className="text-center text-muted-foreground py-8">No access controls found</div>
+                ) : accessControls.map((access) => (
                   <div key={access.id} className="border rounded-lg p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <div>
@@ -2229,7 +2363,7 @@ export default function Recruitment() {
                         </Badge>
                         <Switch
                           checked={access.is_active}
-                          onCheckedChange={() => handleStatusToggle('Access Control', access.id, access.is_active)}
+                          onCheckedChange={() => handleAccessStatusToggle(access.id, access.is_active)}
                         />
                       </div>
                     </div>

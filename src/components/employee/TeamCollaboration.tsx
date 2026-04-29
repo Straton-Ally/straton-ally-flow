@@ -50,132 +50,45 @@ interface TeamActivity {
   type: 'task' | 'project' | 'comment' | 'meeting';
 }
 
-const mockTeamMembers: TeamMember[] = [
-  {
-    id: '1',
-    name: 'John Doe',
-    email: 'john.doe@company.com',
-    phone: '+1 234-567-8900',
-    designation: 'Senior Developer',
-    department: 'Engineering',
-    avatar: 'JD',
-    status: 'online',
-    location: 'New York Office',
-    skills: ['React', 'TypeScript', 'Node.js'],
-    projects: ['Website Redesign', 'API Development'],
-    join_date: '2022-03-15'
-  },
-  {
-    id: '2',
-    name: 'Jane Smith',
-    email: 'jane.smith@company.com',
-    phone: '+1 234-567-8901',
-    designation: 'UX Designer',
-    department: 'Design',
-    avatar: 'JS',
-    status: 'busy',
-    location: 'Remote',
-    skills: ['Figma', 'Adobe XD', 'Prototyping'],
-    projects: ['Website Redesign', 'Mobile App'],
-    join_date: '2022-01-20'
-  },
-  {
-    id: '3',
-    name: 'Mike Johnson',
-    email: 'mike.johnson@company.com',
-    phone: '+1 234-567-8902',
-    designation: 'Project Manager',
-    department: 'Management',
-    avatar: 'MJ',
-    status: 'online',
-    location: 'San Francisco Office',
-    skills: ['Agile', 'Scrum', 'Leadership'],
-    projects: ['Platform Maintenance', 'Performance Optimization'],
-    join_date: '2021-11-10'
-  },
-  {
-    id: '4',
-    name: 'Sarah Wilson',
-    email: 'sarah.wilson@company.com',
-    phone: '+1 234-567-8903',
-    designation: 'Backend Developer',
-    department: 'Engineering',
-    avatar: 'SW',
-    status: 'away',
-    location: 'London Office',
-    skills: ['Python', 'PostgreSQL', 'AWS'],
-    projects: ['API Development', 'Database Migration'],
-    join_date: '2022-06-01'
-  }
-];
+interface EmployeeSelectRow {
+  id: string;
+  user_id: string;
+  department_id: string | null;
+  designation: string | null;
+  phone: string | null;
+  joining_date: string;
+  office_id: string | null;
+  work_location: 'remote' | 'on_site' | null;
+}
 
-const mockProjects: TeamProject[] = [
-  {
-    id: '1',
-    name: 'Website Redesign',
-    description: 'Complete overhaul of company website with modern design',
-    status: 'active',
-    progress: 65,
-    team_members: ['1', '2'],
-    deadline: '2024-03-15',
-    priority: 'high'
-  },
-  {
-    id: '2',
-    name: 'API Development',
-    description: 'Develop RESTful APIs for mobile applications',
-    status: 'active',
-    progress: 40,
-    team_members: ['1', '4'],
-    deadline: '2024-04-01',
-    priority: 'medium'
-  },
-  {
-    id: '3',
-    name: 'Platform Maintenance',
-    description: 'Ongoing maintenance and bug fixes',
-    status: 'active',
-    progress: 80,
-    team_members: ['3'],
-    deadline: '2024-02-28',
-    priority: 'low'
-  }
-];
+interface ProfileSelectRow {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+}
 
-const mockActivities: TeamActivity[] = [
-  {
-    id: '1',
-    user_id: '1',
-    user_name: 'John Doe',
-    action: 'completed task',
-    target: 'Fix authentication bug',
-    timestamp: '2024-01-28T10:30:00Z',
-    type: 'task'
-  },
-  {
-    id: '2',
-    user_id: '2',
-    user_name: 'Jane Smith',
-    action: 'updated design',
-    target: 'Landing page mockups',
-    timestamp: '2024-01-28T09:15:00Z',
-    type: 'project'
-  },
-  {
-    id: '3',
-    user_id: '3',
-    user_name: 'Mike Johnson',
-    action: 'scheduled meeting',
-    target: 'Sprint planning',
-    timestamp: '2024-01-28T08:00:00Z',
-    type: 'meeting'
-  }
-];
+interface DepartmentSelectRow {
+  id: string;
+  name: string;
+}
+
+interface OfficeSelectRow {
+  id: string;
+  name: string;
+}
+
+interface TaskActivityRow {
+  id: string;
+  title: string;
+  status: string;
+  updated_at: string;
+  assignee_id: string | null;
+}
 
 export function TeamCollaboration() {
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>(mockTeamMembers);
-  const [projects, setProjects] = useState<TeamProject[]>(mockProjects);
-  const [activities, setActivities] = useState<TeamActivity[]>(mockActivities);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [projects] = useState<TeamProject[]>([]);
+  const [activities, setActivities] = useState<TeamActivity[]>([]);
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDepartment, setFilterDepartment] = useState<string>('all');
@@ -183,6 +96,100 @@ export function TeamCollaboration() {
   const [message, setMessage] = useState('');
   const [messageRecipient, setMessageRecipient] = useState<string>('');
   const { toast } = useToast();
+
+  useEffect(() => {
+    const fetchTeamData = async () => {
+      try {
+        const { data: employeesData, error: employeesError } = await supabase
+          .from('employees')
+          .select('id,user_id,department_id,designation,phone,joining_date,office_id,work_location')
+          .order('created_at', { ascending: false });
+
+        if (employeesError) throw employeesError;
+
+        const employees = (employeesData ?? []) as EmployeeSelectRow[];
+        const userIds = employees.map((employee) => employee.user_id);
+        const departmentIds = employees.map((employee) => employee.department_id).filter((id): id is string => Boolean(id));
+        const officeIds = employees.map((employee) => employee.office_id).filter((id): id is string => Boolean(id));
+
+        const [profilesResult, departmentsResult, officesResult] = await Promise.all([
+          userIds.length ? supabase.from('profiles').select('id,full_name,email').in('id', userIds) : Promise.resolve({ data: [], error: null }),
+          departmentIds.length ? supabase.from('departments').select('id,name').in('id', departmentIds) : Promise.resolve({ data: [], error: null }),
+          officeIds.length ? supabase.from('offices').select('id,name').in('id', officeIds) : Promise.resolve({ data: [], error: null }),
+        ]);
+
+        if (profilesResult.error) throw profilesResult.error;
+        if (departmentsResult.error) throw departmentsResult.error;
+        if (officesResult.error) throw officesResult.error;
+
+        const profilesById = new Map<string, ProfileSelectRow>();
+        for (const profile of (profilesResult.data ?? []) as ProfileSelectRow[]) profilesById.set(profile.id, profile);
+
+        const departmentsById = new Map<string, DepartmentSelectRow>();
+        for (const department of (departmentsResult.data ?? []) as DepartmentSelectRow[]) departmentsById.set(department.id, department);
+
+        const officesById = new Map<string, OfficeSelectRow>();
+        for (const office of (officesResult.data ?? []) as OfficeSelectRow[]) officesById.set(office.id, office);
+
+        const members = employees.map((employee) => {
+          const profile = profilesById.get(employee.user_id);
+          const fullName = profile?.full_name || 'Unknown employee';
+          const initials = fullName
+            .split(' ')
+            .map((part) => part[0])
+            .join('')
+            .slice(0, 2)
+            .toUpperCase();
+
+          return {
+            id: employee.id,
+            name: fullName,
+            email: profile?.email || '',
+            phone: employee.phone || '',
+            designation: employee.designation || 'Employee',
+            department: employee.department_id ? departmentsById.get(employee.department_id)?.name || 'Unassigned' : 'Unassigned',
+            avatar: initials || 'U',
+            status: 'offline' as const,
+            location: employee.work_location === 'remote' ? 'Remote' : employee.office_id ? officesById.get(employee.office_id)?.name || 'Assigned office' : 'Unassigned',
+            skills: [],
+            projects: [],
+            join_date: employee.joining_date,
+          };
+        });
+
+        setTeamMembers(members);
+
+        const { data: taskData, error: taskError } = await supabase
+          .from('work_tasks')
+          .select('id,title,status,updated_at,assignee_id')
+          .order('updated_at', { ascending: false })
+          .limit(10);
+
+        if (taskError) throw taskError;
+
+        const membersById = new Map(members.map((member) => [member.id, member]));
+        setActivities(
+          ((taskData ?? []) as TaskActivityRow[]).map((task) => ({
+            id: task.id,
+            user_id: task.assignee_id ?? '',
+            user_name: task.assignee_id ? membersById.get(task.assignee_id)?.name || 'Unassigned' : 'Unassigned',
+            action: task.status === 'complete' ? 'completed task' : 'updated task',
+            target: task.title,
+            timestamp: task.updated_at,
+            type: 'task',
+          })),
+        );
+      } catch (error) {
+        toast({
+          title: 'Unable to load team data',
+          description: error instanceof Error ? error.message : 'Failed to fetch employees.',
+          variant: 'destructive',
+        });
+      }
+    };
+
+    void fetchTeamData();
+  }, [toast]);
 
   const getStatusColor = (status: TeamMember['status']) => {
     switch (status) {
@@ -259,10 +266,9 @@ export function TeamCollaboration() {
       return;
     }
 
-    // In a real app, this would send the message via your messaging system
     toast({
-      title: "Message Sent",
-      description: `Your message has been sent to ${messageRecipient}.`,
+      title: "Open Work Chat",
+      description: `Use the Work chat channel to message ${messageRecipient}.`,
     });
 
     setMessage('');
@@ -420,10 +426,9 @@ export function TeamCollaboration() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Departments</SelectItem>
-                <SelectItem value="Engineering">Engineering</SelectItem>
-                <SelectItem value="Design">Design</SelectItem>
-                <SelectItem value="Management">Management</SelectItem>
-                <SelectItem value="Marketing">Marketing</SelectItem>
+                {Array.from(new Set(teamMembers.map((member) => member.department))).map((department) => (
+                  <SelectItem key={department} value={department}>{department}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -433,6 +438,11 @@ export function TeamCollaboration() {
             {filteredMembers.map(member => (
               <MemberCard key={member.id} member={member} />
             ))}
+            {filteredMembers.length === 0 && (
+              <Card className="md:col-span-2 lg:col-span-3">
+                <CardContent className="py-10 text-center text-muted-foreground">No team members found</CardContent>
+              </Card>
+            )}
           </div>
         </TabsContent>
 
@@ -485,6 +495,11 @@ export function TeamCollaboration() {
                 </CardContent>
               </Card>
             ))}
+            {projects.length === 0 && (
+              <Card className="md:col-span-2 lg:col-span-3">
+                <CardContent className="py-10 text-center text-muted-foreground">No projects found</CardContent>
+              </Card>
+            )}
           </div>
         </TabsContent>
 
@@ -519,6 +534,9 @@ export function TeamCollaboration() {
                     </Badge>
                   </div>
                 ))}
+                {activities.length === 0 && (
+                  <div className="py-8 text-center text-muted-foreground">No recent activity</div>
+                )}
               </div>
             </CardContent>
           </Card>

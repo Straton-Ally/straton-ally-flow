@@ -191,7 +191,7 @@ export default function NewEmployee() {
               <Label htmlFor="fullName">Full Name *</Label>
               <Input
                 id="fullName"
-                placeholder="John Doe"
+                placeholder="Full name"
                 {...register('fullName')}
                 className="h-11"
               />

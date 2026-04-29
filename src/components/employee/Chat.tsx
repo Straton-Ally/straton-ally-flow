@@ -10,6 +10,7 @@ import { Separator } from '@/components/ui/separator';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
 import { format, formatDistanceToNow } from 'date-fns';
+import { supabase } from '@/integrations/supabase/client';
 
 interface ChatMessage {
   id: string;
@@ -44,164 +45,123 @@ interface OnlineUser {
   last_seen: string;
 }
 
-const mockChatRooms: ChatRoom[] = [
-  {
-    id: '1',
-    name: 'John Doe',
-    type: 'direct',
-    participants: ['1', '2'],
-    last_message: 'Sure, I\'ll review the design mockups by end of day.',
-    last_message_time: '2024-01-28T10:30:00Z',
-    unread_count: 2,
-    is_online: true,
-    avatar: 'JD'
-  },
-  {
-    id: '2',
-    name: 'Design Team',
-    type: 'group',
-    participants: ['1', '2', '3', '4'],
-    last_message: 'Jane Smith: The new landing page designs are ready for review',
-    last_message_time: '2024-01-28T09:15:00Z',
-    unread_count: 5,
-    avatar: 'DT'
-  },
-  {
-    id: '3',
-    name: 'Mike Johnson',
-    type: 'direct',
-    participants: ['1', '3'],
-    last_message: 'Can we schedule a quick sync about the project timeline?',
-    last_message_time: '2024-01-27T16:45:00Z',
-    unread_count: 0,
-    is_online: false,
-    avatar: 'MJ'
-  },
-  {
-    id: '4',
-    name: 'Engineering Team',
-    type: 'group',
-    participants: ['1', '3', '4', '5', '6'],
-    last_message: 'Sarah Wilson: Database migration completed successfully',
-    last_message_time: '2024-01-27T14:20:00Z',
-    unread_count: 1,
-    avatar: 'ET'
-  }
-];
+interface WorkChannelRow {
+  id: string;
+  name: string;
+  type: string;
+  updated_at: string;
+}
 
-const mockMessages: { [key: string]: ChatMessage[] } = {
-  '1': [
-    {
-      id: '1',
-      sender_id: '2',
-      sender_name: 'John Doe',
-      sender_avatar: 'JD',
-      message: 'Hey! How are the new designs coming along?',
-      timestamp: '2024-01-28T09:00:00Z',
-      is_own: false,
-      type: 'text'
-    },
-    {
-      id: '2',
-      sender_id: '1',
-      sender_name: 'You',
-      sender_avatar: 'ME',
-      message: 'They\'re progressing well! I should have the mockups ready by afternoon.',
-      timestamp: '2024-01-28T09:15:00Z',
-      is_own: true,
-      type: 'text'
-    },
-    {
-      id: '3',
-      sender_id: '2',
-      sender_name: 'John Doe',
-      sender_avatar: 'JD',
-      message: 'Great! Can you share them with me once they\'re ready?',
-      timestamp: '2024-01-28T10:00:00Z',
-      is_own: false,
-      type: 'text'
-    },
-    {
-      id: '4',
-      sender_id: '1',
-      sender_name: 'You',
-      sender_avatar: 'ME',
-      message: 'Sure, I\'ll review the design mockups by end of day.',
-      timestamp: '2024-01-28T10:30:00Z',
-      is_own: true,
-      type: 'text'
-    }
-  ],
-  '2': [
-    {
-      id: '1',
-      sender_id: '2',
-      sender_name: 'Jane Smith',
-      sender_avatar: 'JS',
-      message: 'Hi team! The new landing page designs are ready for review',
-      timestamp: '2024-01-28T09:15:00Z',
-      is_own: false,
-      type: 'text'
-    },
-    {
-      id: '2',
-      sender_id: '3',
-      sender_name: 'Mike Johnson',
-      sender_avatar: 'MJ',
-      message: 'Excellent work Jane! I\'ll review them this morning.',
-      timestamp: '2024-01-28T09:30:00Z',
-      is_own: false,
-      type: 'text'
-    }
-  ]
-};
+interface WorkMessageRow {
+  id: string;
+  user_id: string;
+  content: string | null;
+  created_at: string;
+}
 
-const mockOnlineUsers: OnlineUser[] = [
-  {
-    id: '1',
-    name: 'John Doe',
-    avatar: 'JD',
-    status: 'online',
-    last_seen: '2024-01-28T10:30:00Z'
-  },
-  {
-    id: '2',
-    name: 'Jane Smith',
-    avatar: 'JS',
-    status: 'online',
-    last_seen: '2024-01-28T10:25:00Z'
-  },
-  {
-    id: '3',
-    name: 'Mike Johnson',
-    avatar: 'MJ',
-    status: 'away',
-    last_seen: '2024-01-28T09:45:00Z'
-  },
-  {
-    id: '4',
-    name: 'Sarah Wilson',
-    avatar: 'SW',
-    status: 'busy',
-    last_seen: '2024-01-28T08:30:00Z'
-  }
-];
+interface ProfileRow {
+  id: string;
+  full_name: string | null;
+}
 
 export function Chat() {
-  const [chatRooms, setChatRooms] = useState<ChatRoom[]>(mockChatRooms);
+  const [chatRooms, setChatRooms] = useState<ChatRoom[]>([]);
   const [selectedRoom, setSelectedRoom] = useState<ChatRoom | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>(mockOnlineUsers);
+  const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const [showOnlineUsers, setShowOnlineUsers] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
   useEffect(() => {
-    if (selectedRoom) {
-      setMessages(mockMessages[selectedRoom.id] || []);
-      // Mark messages as read
+    const fetchRooms = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('work_channels')
+          .select('id,name,type,updated_at')
+          .order('updated_at', { ascending: false });
+        if (error) throw error;
+
+        setChatRooms(
+          ((data ?? []) as WorkChannelRow[]).map((channel) => ({
+            id: channel.id,
+            name: channel.name,
+            type: channel.type === 'text' || channel.type === 'announcement' || channel.type === 'category' ? 'group' : 'direct',
+            participants: [],
+            last_message: 'Open channel',
+            last_message_time: channel.updated_at,
+            unread_count: 0,
+            avatar: channel.name
+              .split(' ')
+              .map((part) => part[0])
+              .join('')
+              .slice(0, 2)
+              .toUpperCase(),
+          })),
+        );
+      } catch (error) {
+        toast({
+          title: 'Unable to load chat channels',
+          description: error instanceof Error ? error.message : 'Failed to fetch work channels.',
+          variant: 'destructive',
+        });
+      }
+    };
+
+    void fetchRooms();
+  }, [toast]);
+
+  useEffect(() => {
+    if (!selectedRoom) return;
+
+    const fetchMessages = async () => {
+      const { data: authData } = await supabase.auth.getUser();
+      const { data, error } = await supabase
+        .from('work_messages')
+        .select('id,user_id,content,created_at')
+        .eq('channel_id', selectedRoom.id)
+        .order('created_at', { ascending: true })
+        .limit(100);
+
+      if (error) {
+        toast({
+          title: 'Unable to load messages',
+          description: error.message,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const rows = (data ?? []) as WorkMessageRow[];
+      const userIds = Array.from(new Set(rows.map((message) => message.user_id)));
+      const { data: profilesData } = userIds.length
+        ? await supabase.from('profiles').select('id,full_name').in('id', userIds)
+        : { data: [] };
+      const profilesById = new Map<string, ProfileRow>();
+      for (const profile of (profilesData ?? []) as ProfileRow[]) profilesById.set(profile.id, profile);
+
+      setMessages(
+        rows.map((message) => {
+          const senderName = profilesById.get(message.user_id)?.full_name || 'Unknown user';
+          return {
+            id: message.id,
+            sender_id: message.user_id,
+            sender_name: authData.user?.id === message.user_id ? 'You' : senderName,
+            sender_avatar: senderName
+              .split(' ')
+              .map((part) => part[0])
+              .join('')
+              .slice(0, 2)
+              .toUpperCase(),
+            message: message.content || '',
+            timestamp: message.created_at,
+            is_own: authData.user?.id === message.user_id,
+            type: 'text',
+          };
+        }),
+      );
       setChatRooms(rooms => 
         rooms.map(room => 
           room.id === selectedRoom.id 
@@ -209,7 +169,9 @@ export function Chat() {
             : room
         )
       );
-    }
+    };
+
+    void fetchMessages();
   }, [selectedRoom]);
 
   useEffect(() => {
@@ -253,43 +215,58 @@ export function Chat() {
   const handleSendMessage = () => {
     if (!newMessage.trim() || !selectedRoom) return;
 
-    const message: ChatMessage = {
-      id: Date.now().toString(),
-      sender_id: '1',
-      sender_name: 'You',
-      sender_avatar: 'ME',
-      message: newMessage.trim(),
-      timestamp: new Date().toISOString(),
-      is_own: true,
-      type: 'text'
-    };
+    void (async () => {
+      const content = newMessage.trim();
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError || !authData.user) {
+        toast({
+          title: 'Message not sent',
+          description: authError?.message || 'You must be signed in to send messages.',
+          variant: 'destructive',
+        });
+        return;
+      }
 
-    setMessages([...messages, message]);
-    setNewMessage('');
+      const { data, error } = await supabase
+        .from('work_messages')
+        .insert({
+          channel_id: selectedRoom.id,
+          user_id: authData.user.id,
+          content,
+        })
+        .select('id,user_id,content,created_at')
+        .single();
 
-    // Update last message in chat room
-    setChatRooms(rooms =>
-      rooms.map(room =>
-        room.id === selectedRoom.id
-          ? { ...room, last_message: message.message, last_message_time: message.timestamp }
-          : room
-      )
-    );
+      if (error) {
+        toast({
+          title: 'Message not sent',
+          description: error.message,
+          variant: 'destructive',
+        });
+        return;
+      }
 
-    // Simulate response after 1 second
-    setTimeout(() => {
-      const response: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        sender_id: selectedRoom.type === 'direct' ? selectedRoom.participants.find(p => p !== '1') || '2' : '2',
-        sender_name: selectedRoom.type === 'direct' ? selectedRoom.name : 'Team Member',
-        sender_avatar: selectedRoom.type === 'direct' ? selectedRoom.avatar || 'TM' : 'TM',
-        message: 'Thanks for your message! I\'ll get back to you soon.',
-        timestamp: new Date().toISOString(),
-        is_own: false,
-        type: 'text'
+      const message: ChatMessage = {
+        id: data.id,
+        sender_id: data.user_id,
+        sender_name: 'You',
+        sender_avatar: 'ME',
+        message: data.content || '',
+        timestamp: data.created_at,
+        is_own: true,
+        type: 'text',
       };
-      setMessages(prev => [...prev, response]);
-    }, 1000);
+
+      setMessages((current) => [...current, message]);
+      setNewMessage('');
+      setChatRooms(rooms =>
+        rooms.map(room =>
+          room.id === selectedRoom.id
+            ? { ...room, last_message: message.message, last_message_time: message.timestamp }
+            : room
+        )
+      );
+    })();
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {

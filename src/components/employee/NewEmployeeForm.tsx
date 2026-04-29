@@ -196,7 +196,7 @@ export function NewEmployeeForm({ onSuccess, onCancel }: NewEmployeeFormProps) {
           <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="ne-fullName">Full Name *</Label>
-              <Input id="ne-fullName" placeholder="John Doe" {...register('fullName')} className="h-10" />
+              <Input id="ne-fullName" placeholder="Full name" {...register('fullName')} className="h-10" />
               {errors.fullName && <p className="text-sm text-destructive">{errors.fullName.message}</p>}
             </div>
             <div className="space-y-2">
