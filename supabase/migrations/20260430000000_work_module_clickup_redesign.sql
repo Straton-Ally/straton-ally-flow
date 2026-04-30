@@ -5,7 +5,7 @@
 -- =============================================
 -- TEAMS (Primary organizational unit)
 -- =============================================
-CREATE TABLE work_teams (
+CREATE TABLE IF NOT EXISTS work_teams (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     description TEXT,
@@ -19,7 +19,7 @@ CREATE TABLE work_teams (
 ALTER TABLE work_teams ENABLE ROW LEVEL SECURITY;
 
 -- Team members with roles
-CREATE TABLE work_team_members (
+CREATE TABLE IF NOT EXISTS work_team_members (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     team_id UUID NOT NULL REFERENCES work_teams(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -33,7 +33,7 @@ ALTER TABLE work_team_members ENABLE ROW LEVEL SECURITY;
 -- =============================================
 -- PROJECTS (Group tasks within teams)
 -- =============================================
-CREATE TABLE work_projects (
+CREATE TABLE IF NOT EXISTS work_projects (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     team_id UUID NOT NULL REFERENCES work_teams(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
@@ -50,7 +50,7 @@ CREATE TABLE work_projects (
 ALTER TABLE work_projects ENABLE ROW LEVEL SECURITY;
 
 -- Project members (who has access to project)
-CREATE TABLE work_project_members (
+CREATE TABLE IF NOT EXISTS work_project_members (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID NOT NULL REFERENCES work_projects(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -64,7 +64,7 @@ ALTER TABLE work_project_members ENABLE ROW LEVEL SECURITY;
 -- =============================================
 -- TASKS (Redesigned with subtasks support)
 -- =============================================
-CREATE TABLE work_tasks_v2 (
+CREATE TABLE IF NOT EXISTS work_tasks_v2 (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID NOT NULL REFERENCES work_projects(id) ON DELETE CASCADE,
     parent_id UUID REFERENCES work_tasks_v2(id) ON DELETE CASCADE,
@@ -91,13 +91,13 @@ CREATE TABLE work_tasks_v2 (
 ALTER TABLE work_tasks_v2 ENABLE ROW LEVEL SECURITY;
 
 -- Task subtasks relationship view
-CREATE VIEW work_task_subtasks AS
+CREATE OR REPLACE VIEW work_task_subtasks AS
 SELECT * FROM work_tasks_v2 WHERE parent_id IS NOT NULL;
 
 -- =============================================
 -- TASK COMMENTS (Threaded comments on tasks)
 -- =============================================
-CREATE TABLE work_task_comments (
+CREATE TABLE IF NOT EXISTS work_task_comments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     task_id UUID NOT NULL REFERENCES work_tasks_v2(id) ON DELETE CASCADE,
     parent_id UUID REFERENCES work_task_comments(id) ON DELETE CASCADE,
@@ -114,7 +114,7 @@ ALTER TABLE work_task_comments ENABLE ROW LEVEL SECURITY;
 -- =============================================
 -- TEAM CHAT ROOMS (Dedicated chat per team)
 -- =============================================
-CREATE TABLE work_chat_rooms (
+CREATE TABLE IF NOT EXISTS work_chat_rooms (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     team_id UUID NOT NULL REFERENCES work_teams(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
@@ -129,7 +129,7 @@ CREATE TABLE work_chat_rooms (
 ALTER TABLE work_chat_rooms ENABLE ROW LEVEL SECURITY;
 
 -- Chat messages
-CREATE TABLE work_chat_messages (
+CREATE TABLE IF NOT EXISTS work_chat_messages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     room_id UUID NOT NULL REFERENCES work_chat_rooms(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -143,138 +143,235 @@ CREATE TABLE work_chat_messages (
 ALTER TABLE work_chat_messages ENABLE ROW LEVEL SECURITY;
 
 -- =============================================
+-- RLS HELPER FUNCTIONS
+-- These avoid recursive RLS checks when policies need team membership.
+-- =============================================
+CREATE OR REPLACE FUNCTION public.work_is_team_member(_team_id UUID, _user_id UUID DEFAULT auth.uid())
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1
+        FROM public.work_team_members
+        WHERE team_id = _team_id
+          AND user_id = _user_id
+    );
+$$;
+
+CREATE OR REPLACE FUNCTION public.work_can_manage_team(_team_id UUID, _user_id UUID DEFAULT auth.uid())
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT public.has_role(_user_id, 'admin')
+        OR EXISTS (
+            SELECT 1
+            FROM public.work_team_members
+            WHERE team_id = _team_id
+              AND user_id = _user_id
+              AND role IN ('owner', 'admin')
+        );
+$$;
+
+CREATE OR REPLACE FUNCTION public.work_project_team_id(_project_id UUID)
+RETURNS UUID
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT team_id
+    FROM public.work_projects
+    WHERE id = _project_id;
+$$;
+
+CREATE OR REPLACE FUNCTION public.work_task_team_id(_task_id UUID)
+RETURNS UUID
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT p.team_id
+    FROM public.work_tasks_v2 t
+    JOIN public.work_projects p ON p.id = t.project_id
+    WHERE t.id = _task_id;
+$$;
+
+CREATE OR REPLACE FUNCTION public.work_room_team_id(_room_id UUID)
+RETURNS UUID
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT team_id
+    FROM public.work_chat_rooms
+    WHERE id = _room_id;
+$$;
+
+-- =============================================
 -- RLS POLICIES FOR work_teams
 -- =============================================
 
 -- Everyone can read teams they're members of
+DROP POLICY IF EXISTS "work_teams_select" ON work_teams;
 CREATE POLICY "work_teams_select" ON work_teams FOR SELECT
-    USING (id IN (SELECT team_id FROM work_team_members WHERE user_id = auth.uid()));
+    USING (public.has_role(auth.uid(), 'admin') OR public.work_is_team_member(id));
 
 -- Team owners/admins can insert
+DROP POLICY IF EXISTS "work_teams_insert" ON work_teams;
 CREATE POLICY "work_teams_insert" ON work_teams FOR INSERT
-    WITH CHECK (created_by = auth.uid() OR EXISTS (
-        SELECT 1 FROM work_team_members 
-        WHERE team_id = work_teams.id AND user_id = auth.uid() AND role IN ('owner', 'admin')
-    ));
+    WITH CHECK (public.has_role(auth.uid(), 'admin') OR created_by = auth.uid());
 
 -- Team owners/admins can update
+DROP POLICY IF EXISTS "work_teams_update" ON work_teams;
 CREATE POLICY "work_teams_update" ON work_teams FOR UPDATE
-    USING (id IN (SELECT team_id FROM work_team_members WHERE user_id = auth.uid() AND role IN ('owner', 'admin')));
+    USING (public.work_can_manage_team(id));
 
 -- =============================================
 -- RLS POLICIES FOR work_team_members
 -- =============================================
+DROP POLICY IF EXISTS "work_team_members_select" ON work_team_members;
 CREATE POLICY "work_team_members_select" ON work_team_members FOR SELECT
-    USING (team_id IN (SELECT team_id FROM work_team_members WHERE user_id = auth.uid()));
+    USING (public.has_role(auth.uid(), 'admin') OR public.work_is_team_member(team_id));
 
+DROP POLICY IF EXISTS "work_team_members_insert" ON work_team_members;
 CREATE POLICY "work_team_members_insert" ON work_team_members FOR INSERT
-    WITH CHECK (auth.uid() IN (
-        SELECT user_id FROM work_team_members WHERE team_id = work_team_members.team_id AND role IN ('owner', 'admin')
-    ) OR auth.uid() = work_team_members.user_id);
+    WITH CHECK (public.work_can_manage_team(team_id) OR auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "work_team_members_delete" ON work_team_members;
 CREATE POLICY "work_team_members_delete" ON work_team_members FOR DELETE
-    USING (auth.uid() IN (
-        SELECT user_id FROM work_team_members WHERE team_id = work_team_members.team_id AND role IN ('owner', 'admin')
-    ));
+    USING (public.work_can_manage_team(team_id));
 
 -- =============================================
 -- RLS POLICIES FOR work_projects
 -- =============================================
+DROP POLICY IF EXISTS "work_projects_select" ON work_projects;
 CREATE POLICY "work_projects_select" ON work_projects FOR SELECT
-    USING (
-        team_id IN (SELECT team_id FROM work_team_members WHERE user_id = auth.uid())
-        OR id IN (SELECT project_id FROM work_project_members WHERE user_id = auth.uid())
-    );
+    USING (public.has_role(auth.uid(), 'admin') OR public.work_is_team_member(team_id));
 
+DROP POLICY IF EXISTS "work_projects_insert" ON work_projects;
 CREATE POLICY "work_projects_insert" ON work_projects FOR INSERT
-    WITH CHECK (team_id IN (SELECT team_id FROM work_team_members WHERE user_id = auth.uid() AND role IN ('owner', 'admin')));
+    WITH CHECK (public.work_can_manage_team(team_id));
 
+DROP POLICY IF EXISTS "work_projects_update" ON work_projects;
 CREATE POLICY "work_projects_update" ON work_projects FOR UPDATE
-    USING (team_id IN (SELECT team_id FROM work_team_members WHERE user_id = auth.uid() AND role IN ('owner', 'admin')));
+    USING (public.work_can_manage_team(team_id));
 
 -- =============================================
 -- RLS POLICIES FOR work_project_members
 -- =============================================
+DROP POLICY IF EXISTS "work_project_members_select" ON work_project_members;
 CREATE POLICY "work_project_members_select" ON work_project_members FOR SELECT
     USING (
-        project_id IN (SELECT id FROM work_projects WHERE team_id IN (SELECT team_id FROM work_team_members WHERE user_id = auth.uid()))
+        public.has_role(auth.uid(), 'admin')
+        OR public.work_is_team_member(public.work_project_team_id(project_id))
     );
 
+DROP POLICY IF EXISTS "work_project_members_insert" ON work_project_members;
 CREATE POLICY "work_project_members_insert" ON work_project_members FOR INSERT
     WITH CHECK (
-        project_id IN (SELECT id FROM work_projects WHERE team_id IN (SELECT team_id FROM work_team_members WHERE user_id = auth.uid() AND role IN ('owner', 'admin')) OR auth.uid() = work_project_members.user_id)
+        public.work_can_manage_team(public.work_project_team_id(project_id))
+        OR auth.uid() = user_id
     );
 
 -- =============================================
 -- RLS POLICIES FOR work_tasks_v2
 -- =============================================
+DROP POLICY IF EXISTS "work_tasks_v2_select" ON work_tasks_v2;
 CREATE POLICY "work_tasks_v2_select" ON work_tasks_v2 FOR SELECT
     USING (
-        project_id IN (SELECT id FROM work_projects WHERE team_id IN (SELECT team_id FROM work_team_members WHERE user_id = auth.uid()))
+        public.has_role(auth.uid(), 'admin')
+        OR public.work_is_team_member(public.work_project_team_id(project_id))
         OR assignee_id = auth.uid()
         OR reporter_id = auth.uid()
     );
 
+DROP POLICY IF EXISTS "work_tasks_v2_insert" ON work_tasks_v2;
 CREATE POLICY "work_tasks_v2_insert" ON work_tasks_v2 FOR INSERT
     WITH CHECK (
-        project_id IN (SELECT id FROM work_projects WHERE team_id IN (SELECT team_id FROM work_team_members WHERE user_id = auth.uid()))
+        public.has_role(auth.uid(), 'admin')
+        OR public.work_is_team_member(public.work_project_team_id(project_id))
         OR assignee_id = auth.uid()
     );
 
+DROP POLICY IF EXISTS "work_tasks_v2_update" ON work_tasks_v2;
 CREATE POLICY "work_tasks_v2_update" ON work_tasks_v2 FOR UPDATE
     USING (
-        project_id IN (SELECT id FROM work_projects WHERE team_id IN (SELECT team_id FROM work_team_members WHERE user_id = auth.uid() AND role IN ('owner', 'admin')))
+        public.work_can_manage_team(public.work_project_team_id(project_id))
         OR assignee_id = auth.uid()
         OR reporter_id = auth.uid()
     );
 
+DROP POLICY IF EXISTS "work_tasks_v2_delete" ON work_tasks_v2;
 CREATE POLICY "work_tasks_v2_delete" ON work_tasks_v2 FOR DELETE
-    USING (
-        project_id IN (SELECT id FROM work_projects WHERE team_id IN (SELECT team_id FROM work_team_members WHERE user_id = auth.uid() AND role IN ('owner', 'admin')))
-    );
+    USING (public.work_can_manage_team(public.work_project_team_id(project_id)));
 
 -- =============================================
 -- RLS POLICIES FOR work_task_comments
 -- =============================================
+DROP POLICY IF EXISTS "work_task_comments_select" ON work_task_comments;
 CREATE POLICY "work_task_comments_select" ON work_task_comments FOR SELECT
     USING (
-        task_id IN (SELECT id FROM work_tasks_v2 WHERE project_id IN (SELECT id FROM work_projects WHERE team_id IN (SELECT team_id FROM work_team_members WHERE user_id = auth.uid())))
+        public.has_role(auth.uid(), 'admin')
+        OR public.work_is_team_member(public.work_task_team_id(task_id))
     );
 
+DROP POLICY IF EXISTS "work_task_comments_insert" ON work_task_comments;
 CREATE POLICY "work_task_comments_insert" ON work_task_comments FOR INSERT
-    WITH CHECK (user_id = auth.uid());
+    WITH CHECK (
+        user_id = auth.uid()
+        AND (
+            public.has_role(auth.uid(), 'admin')
+            OR public.work_is_team_member(public.work_task_team_id(task_id))
+        )
+    );
 
+DROP POLICY IF EXISTS "work_task_comments_update" ON work_task_comments;
 CREATE POLICY "work_task_comments_update" ON work_task_comments FOR UPDATE
     USING (user_id = auth.uid());
 
+DROP POLICY IF EXISTS "work_task_comments_delete" ON work_task_comments;
 CREATE POLICY "work_task_comments_delete" ON work_task_comments FOR DELETE
     USING (user_id = auth.uid());
 
 -- =============================================
 -- RLS POLICIES FOR work_chat_rooms
 -- =============================================
+DROP POLICY IF EXISTS "work_chat_rooms_select" ON work_chat_rooms;
 CREATE POLICY "work_chat_rooms_select" ON work_chat_rooms FOR SELECT
-    USING (team_id IN (SELECT team_id FROM work_team_members WHERE user_id = auth.uid()));
+    USING (public.has_role(auth.uid(), 'admin') OR public.work_is_team_member(team_id));
 
+DROP POLICY IF EXISTS "work_chat_rooms_insert" ON work_chat_rooms;
 CREATE POLICY "work_chat_rooms_insert" ON work_chat_rooms FOR INSERT
-    WITH CHECK (team_id IN (SELECT team_id FROM work_team_members WHERE user_id = auth.uid() AND role IN ('owner', 'admin')));
+    WITH CHECK (public.work_can_manage_team(team_id));
 
 -- =============================================
 -- RLS POLICIES FOR work_chat_messages
 -- =============================================
+DROP POLICY IF EXISTS "work_chat_messages_select" ON work_chat_messages;
 CREATE POLICY "work_chat_messages_select" ON work_chat_messages FOR SELECT
     USING (
-        room_id IN (SELECT id FROM work_chat_rooms WHERE team_id IN (SELECT team_id FROM work_team_members WHERE user_id = auth.uid()))
+        public.has_role(auth.uid(), 'admin')
+        OR public.work_is_team_member(public.work_room_team_id(room_id))
     );
 
+DROP POLICY IF EXISTS "work_chat_messages_insert" ON work_chat_messages;
 CREATE POLICY "work_chat_messages_insert" ON work_chat_messages FOR INSERT
     WITH CHECK (
-        room_id IN (SELECT id FROM work_chat_rooms WHERE team_id IN (SELECT team_id FROM work_team_members WHERE user_id = auth.uid()))
+        user_id = auth.uid()
+        AND (
+            public.has_role(auth.uid(), 'admin')
+            OR public.work_is_team_member(public.work_room_team_id(room_id))
+        )
     );
 
+DROP POLICY IF EXISTS "work_chat_messages_update" ON work_chat_messages;
 CREATE POLICY "work_chat_messages_update" ON work_chat_messages FOR UPDATE
     USING (user_id = auth.uid());
 
+DROP POLICY IF EXISTS "work_chat_messages_delete" ON work_chat_messages;
 CREATE POLICY "work_chat_messages_delete" ON work_chat_messages FOR DELETE
     USING (user_id = auth.uid());
 
@@ -346,8 +443,8 @@ BEGIN
         (SELECT COUNT(*) FROM work_task_comments WHERE task_id = wt.id)::BIGINT as comment_count,
         wt.created_at
     FROM work_tasks_v2 wt
-    LEFT JOIN profiles p ON wt.assignee_id = p.user_id
-    LEFT JOIN employees e ON p.user_id = e.user_id
+    LEFT JOIN profiles p ON wt.assignee_id = p.id
+    LEFT JOIN employees e ON wt.assignee_id = e.user_id
     WHERE wt.project_id = project_uuid
         AND wt.parent_id IS NULL
         AND (status_filter IS NULL OR wt.status = status_filter)

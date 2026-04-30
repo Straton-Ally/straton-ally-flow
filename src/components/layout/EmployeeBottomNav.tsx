@@ -3,13 +3,10 @@ import { cn } from '@/lib/utils';
 import {
   LayoutDashboard,
   Clock,
-  CheckSquare,
   Users,
-  Banknote,
   Menu,
   LogOut,
-  Bell,
-  MessageSquare,
+  Briefcase,
 } from 'lucide-react';
 import {
   Sheet,
@@ -26,19 +23,16 @@ import { ThemeToggle } from '@/components/ui/theme-toggle';
 const mainNavItems = [
   { icon: LayoutDashboard, label: 'Home', href: '/employee/dashboard' },
   { icon: Clock, label: 'Attendance', href: '/employee/attendance' },
-  { icon: CheckSquare, label: 'Tasks', href: '/employee/tasks' },
+  { icon: Briefcase, label: 'Work', href: '/employee/work' },
   { icon: Users, label: 'Team', href: '/employee/team' },
 ];
 
 const moreNavItems = [
   { label: 'Dashboard', href: '/employee/dashboard' },
   { label: 'Attendance', href: '/employee/attendance' },
-  { label: 'Tasks', href: '/employee/tasks' },
-  { label: 'Team', href: '/employee/team' },
+  { label: 'Workspace', href: '/employee/work' },
   { label: 'Salary', href: '/employee/salary' },
   { label: 'Notifications', href: '/employee/notifications' },
-  { label: 'Chat', href: '/employee/chat' },
-  { label: 'Teams', href: '/teams' },
   { label: 'Settings', href: '/employee/settings' },
 ];
 

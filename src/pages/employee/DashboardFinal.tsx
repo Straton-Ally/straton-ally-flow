@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, CheckSquare, Clock, Banknote, MessageSquare, Users, Bell, Eye, EyeOff } from 'lucide-react';
+import { Calendar, CheckSquare, Clock, Banknote, Briefcase, Bell, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { endOfMonth, format, startOfMonth } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
-import { fetchWorkTasks } from '@/lib/work-tasks';
+
+const workspaceDb = supabase as any;
 
 export default function EmployeeDashboard() {
   const { user } = useAuth();
@@ -115,9 +116,14 @@ export default function EmployeeDashboard() {
         setSalaryType(null);
       }
 
-      const employeeTasks = await fetchWorkTasks({ assigneeId: employee.id });
-      setTasksTotal(employeeTasks.length);
-      setTasksPending(employeeTasks.filter((task) => task.status !== 'completed').length);
+      const { data: employeeTasks } = await workspaceDb
+        .from('work_tasks_v2')
+        .select('id,status')
+        .eq('assignee_id', user.id);
+
+      const taskRows = (employeeTasks ?? []) as Array<{ id: string; status: string }>;
+      setTasksTotal(taskRows.length);
+      setTasksPending(taskRows.filter((task) => task.status !== 'done' && task.status !== 'cancelled').length);
     };
 
     fetchTodayStatus();
@@ -171,14 +177,7 @@ export default function EmployeeDashboard() {
       title: 'Tasks',
       subtitle: `${tasksPending} pending`,
       icon: CheckSquare,
-      href: '/employee/tasks',
-      indicatorClass: 'bg-success',
-    },
-    {
-      title: 'Team',
-      subtitle: 'Open team space',
-      icon: Users,
-      href: '/employee/team',
+      href: '/employee/work',
       indicatorClass: 'bg-success',
     },
     {
@@ -196,10 +195,10 @@ export default function EmployeeDashboard() {
       indicatorClass: 'bg-success',
     },
     {
-      title: 'Chat',
-      subtitle: 'Open messages',
-      icon: MessageSquare,
-      href: '/employee/chat',
+      title: 'Workspace',
+      subtitle: 'Teams and chat',
+      icon: Briefcase,
+      href: '/employee/work',
       indicatorClass: 'bg-blue-500',
     },
   ] as const;

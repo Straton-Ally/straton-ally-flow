@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { Search, Bell, MessageSquare, LogOut } from 'lucide-react';
+import { Search, Bell, Briefcase, LogOut } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -20,10 +20,8 @@ import { supabase } from '@/integrations/supabase/client';
 const navItems = [
   { label: 'Dashboard', href: '/employee/dashboard' },
   { label: 'Attendance', href: '/employee/attendance' },
-  { label: 'Tasks', href: '/employee/tasks' },
-  { label: 'Team', href: '/employee/team' },
+  { label: 'Workspace', href: '/employee/work' },
   { label: 'Salary', href: '/employee/salary' },
-  { label: 'Work', href: '/teams' },
 ];
 
 export function EmployeeTopNav() {
@@ -114,8 +112,8 @@ export function EmployeeTopNav() {
             />
           </div>
 
-          <Button variant="ghost" size="icon" className="h-8 w-8">
-            <MessageSquare className="h-4 w-4" />
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate('/employee/work')} title="Workspace">
+            <Briefcase className="h-4 w-4" />
           </Button>
 
           <Button

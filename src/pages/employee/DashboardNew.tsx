@@ -3,12 +3,10 @@ import { EmployeeLayout } from '@/components/layout/EmployeeLayout';
 import { AttendanceSystem } from '@/components/employee/AttendanceSystemNew';
 import { AttendanceStats } from '@/components/employee/AttendanceStats';
 import { SalaryProgress } from '@/components/employee/SalaryProgress';
-import { TaskManagement } from '@/components/employee/TaskManagement';
-import { TeamCollaboration } from '@/components/employee/TeamCollaboration';
 import { Notifications } from '@/components/employee/Notifications';
-import { Chat } from '@/components/employee/Chat';
+import { WorkspaceModule } from '@/components/work/WorkspaceModule';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Clock, Calendar, Banknote, CheckSquare, Users, Bell, MessageSquare, TrendingUp } from 'lucide-react';
+import { Clock, Calendar, Banknote, CheckSquare, Users, Bell, Briefcase, TrendingUp } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { format } from 'date-fns';
 
@@ -27,13 +25,11 @@ export default function EmployeeDashboard() {
       case 'salary':
         return <SalaryProgress />;
       case 'tasks':
-        return <TaskManagement />;
       case 'team':
-        return <TeamCollaboration />;
+      case 'chat':
+        return <WorkspaceModule mode="employee" />;
       case 'notifications':
         return <Notifications />;
-      case 'chat':
-        return <Chat />;
       default:
         return <DashboardHome />;
     }
@@ -205,8 +201,8 @@ export default function EmployeeDashboard() {
         <Card className="card-elevated cursor-pointer hover:shadow-lg transition-shadow" onClick={() => setCurrentPage('chat')}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <MessageSquare className="h-5 w-5" />
-              Team Chat
+              <Briefcase className="h-5 w-5" />
+              Workspace
             </CardTitle>
           </CardHeader>
           <CardContent>

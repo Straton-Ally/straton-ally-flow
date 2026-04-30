@@ -44,11 +44,6 @@ interface ProfileLite {
   avatar_url: string | null;
 }
 
-interface ChannelLite {
-  id: string;
-  name: string;
-}
-
 const notificationTypes: WorkNotificationType[] = [
   'mention',
   'message',
@@ -82,7 +77,6 @@ export function Notifications() {
   const { toast } = useToast();
   const [notifications, setNotifications] = useState<WorkNotification[]>([]);
   const [profilesById, setProfilesById] = useState<Record<string, ProfileLite>>({});
-  const [channelsById, setChannelsById] = useState<Record<string, ChannelLite>>({});
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState<'all' | WorkNotificationType>('all');
   const [filterRead, setFilterRead] = useState<'all' | 'read' | 'unread'>('all');
@@ -301,7 +295,6 @@ export function Notifications() {
 
     const hydrateRelated = async (rows: WorkNotification[]) => {
       const actorIds = Array.from(new Set(rows.map((r) => r.actor_id).filter((v): v is string => typeof v === 'string')));
-      const channelIds = Array.from(new Set(rows.map((r) => r.channel_id).filter((v): v is string => typeof v === 'string')));
 
       if (actorIds.length > 0) {
         const { data } = await supabase
@@ -312,20 +305,6 @@ export function Notifications() {
           setProfilesById((prev) => {
             const next = { ...prev };
             for (const p of data as ProfileLite[]) next[p.id] = p;
-            return next;
-          });
-        }
-      }
-
-      if (channelIds.length > 0) {
-        const { data } = await supabase
-          .from('work_channels')
-          .select('id,name')
-          .in('id', channelIds);
-        if (data) {
-          setChannelsById((prev) => {
-            const next = { ...prev };
-            for (const c of data as ChannelLite[]) next[c.id] = c;
             return next;
           });
         }
@@ -449,9 +428,6 @@ export function Notifications() {
 
   const getNotificationTarget = (notification: WorkNotification) => {
     if (notification.action_url) return notification.action_url;
-    if (notification.office_id && notification.channel_id) {
-      return `/teams`;
-    }
     if (
       notification.type === 'attendance_checkout_reminder' ||
       notification.type === 'attendance_auto_checkout' ||
@@ -467,7 +443,7 @@ export function Notifications() {
     if (notification.type === 'early_checkout_request') {
       return '/admin/attendance';
     }
-    return '/teams';
+    return user?.role === 'admin' ? '/admin/work' : '/employee/work';
   };
 
   const handleBulkDelete = async () => {
@@ -502,10 +478,8 @@ export function Notifications() {
 
   const NotificationCard = ({ notification }: { notification: WorkNotification }) => {
     const actor = notification.actor_id ? profilesById[notification.actor_id] : undefined;
-    const channel = notification.channel_id ? channelsById[notification.channel_id] : undefined;
     const byline = [
       actor?.full_name ? `From ${actor.full_name}` : null,
-      channel?.name ? `in #${channel.name}` : null,
     ]
       .filter(Boolean)
       .join(' ');
@@ -668,7 +642,7 @@ export function Notifications() {
           <span className="text-sm">Select All</span>
         </div>
         
-        <Select value={filterType} onValueChange={setFilterType}>
+        <Select value={filterType} onValueChange={(value) => setFilterType(value as 'all' | WorkNotificationType)}>
           <SelectTrigger className="w-48">
             <SelectValue placeholder="Filter by type" />
           </SelectTrigger>
@@ -686,7 +660,7 @@ export function Notifications() {
           </SelectContent>
         </Select>
         
-        <Select value={filterRead} onValueChange={setFilterRead}>
+        <Select value={filterRead} onValueChange={(value) => setFilterRead(value as 'all' | 'read' | 'unread')}>
           <SelectTrigger className="w-48">
             <SelectValue placeholder="Filter by status" />
           </SelectTrigger>

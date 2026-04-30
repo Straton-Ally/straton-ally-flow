@@ -11,6 +11,7 @@ import {
   UserPlus,
   Settings,
   FileText,
+  Briefcase,
   ChevronLeft,
   ChevronRight,
   Sparkles,
@@ -25,6 +26,7 @@ const navItems = [
   { icon: Wallet, label: 'Payroll', href: '/admin/salaries' },
   { icon: CalendarDays, label: 'Leave Management', href: '/admin/leave' },
   { icon: UserPlus, label: 'Recruitment', href: '/admin/recruitment' },
+  { icon: Briefcase, label: 'Workspace', href: '/admin/work' },
   { icon: FileText, label: 'Logs', href: '/admin/logs' },
 ];
 

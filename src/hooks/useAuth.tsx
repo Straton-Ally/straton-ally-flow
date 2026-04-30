@@ -161,9 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             metadata?: { attendance_id?: string } | null;
           };
 
-          const url =
-            row.action_url ||
-            (row.office_id && row.channel_id ? `/teams` : '/teams');
+          const url = row.action_url || (user?.role === 'admin' ? '/admin/work' : '/employee/work');
 
           playNotificationSound();
 
@@ -229,7 +227,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       channel.unsubscribe();
     };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, user?.role]);
 
   const refetch = async () => {
     await fetchUser();
