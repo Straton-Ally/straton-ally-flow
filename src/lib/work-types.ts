@@ -109,6 +109,14 @@ export interface WorkChatRoom {
   updated_at: string
 }
 
+export interface WorkChatAttachment {
+  name: string
+  type: string
+  size: number
+  path: string
+  url?: string | null
+}
+
 export interface WorkChatMessage {
   id: string
   room_id: string
@@ -116,6 +124,7 @@ export interface WorkChatMessage {
   user_id: string
   content: string
   mentions: string[]
+  attachments: WorkChatAttachment[]
   reactions: Record<string, string[]>
   is_edited: boolean
   created_at: string

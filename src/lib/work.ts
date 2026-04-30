@@ -8,6 +8,7 @@ import type {
   WorkTaskComment,
   WorkChatRoom,
   WorkChatMessage,
+  WorkChatAttachment,
   WorkTaskStatusV2,
   WorkTaskPriority,
   UserTeam,
@@ -20,6 +21,7 @@ export type {
   ProjectTask,
   UserTeam,
   WorkChatMessage,
+  WorkChatAttachment,
   WorkChatRoom,
   WorkProject,
   WorkProjectMember,
@@ -269,18 +271,19 @@ export async function fetchChatMessages(roomId: string, limit = 50): Promise<Wor
     limit_count: limit,
   });
   if (error) throw error;
-  return ((data ?? []) as Array<WorkChatMessage & {
+  return Promise.all(((data ?? []) as Array<WorkChatMessage & {
     user_full_name?: string | null;
     user_avatar_url?: string | null;
     parent_content?: string | null;
     parent_user_full_name?: string | null;
-  }>).map((message) => ({
+  }>).map(async (message) => ({
     id: message.id,
     room_id: message.room_id,
     parent_id: message.parent_id,
     user_id: message.user_id,
     content: message.content,
     mentions: message.mentions ?? [],
+    attachments: await hydrateChatAttachments(message.attachments ?? []),
     reactions: message.reactions ?? {},
     is_edited: message.is_edited,
     created_at: message.created_at,
@@ -296,13 +299,29 @@ export async function fetchChatMessages(roomId: string, limit = 50): Promise<Wor
           user_full_name: message.parent_user_full_name ?? null,
         }
       : null,
-  }));
+  })));
 }
 
 export async function sendChatMessage(message: Partial<WorkChatMessage>): Promise<WorkChatMessage> {
   const { data, error } = await workDb.from('work_chat_messages').insert(message).select().single();
   if (error) throw error;
   return data as WorkChatMessage;
+}
+
+export async function uploadChatAttachment(roomId: string, file: File): Promise<WorkChatAttachment> {
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const path = `${roomId}/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
+  const { error } = await workDb.storage
+    .from('work-chat-attachments')
+    .upload(path, file, { contentType: file.type || 'application/octet-stream' });
+  if (error) throw error;
+
+  return {
+    name: file.name,
+    type: file.type || 'application/octet-stream',
+    size: file.size,
+    path,
+  };
 }
 
 export async function editChatMessage(id: string, content: string): Promise<WorkChatMessage> {
@@ -392,6 +411,21 @@ async function fetchEmployeesByUserId(userIds: string[]) {
   }
 
   return employees;
+}
+
+async function hydrateChatAttachments(attachments: WorkChatAttachment[]) {
+  if (!Array.isArray(attachments) || attachments.length === 0) return [];
+
+  return Promise.all(attachments.map(async (attachment) => {
+    if (!attachment.path) return attachment;
+    const { data } = await workDb.storage
+      .from('work-chat-attachments')
+      .createSignedUrl(attachment.path, 60 * 60);
+    return {
+      ...attachment,
+      url: data?.signedUrl ?? null,
+    };
+  }));
 }
 
 function countBy<T extends Record<string, unknown>>(rows: T[], key: keyof T) {

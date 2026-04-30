@@ -1,14 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Briefcase,
   Calendar,
   CheckCircle2,
+  FileText,
   Flag,
+  Image,
   Loader2,
   MessageSquare,
+  Paperclip,
   Plus,
   Reply,
+  Search,
   Send,
   SmilePlus,
   X,
@@ -25,6 +29,7 @@ import type {
   UserTeam,
   WorkChatMessage,
   WorkChatRoom,
+  WorkChatAttachment,
   WorkProject,
   WorkTaskComment,
   WorkTaskPriority,
@@ -52,6 +57,7 @@ import {
   TASK_STATUSES,
   updateTask,
   updateChatMessageReactions,
+  uploadChatAttachment,
 } from '@/lib/work';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -112,6 +118,7 @@ export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [teams, setTeams] = useState<WorkTeam[]>([]);
   const [userTeams, setUserTeams] = useState<UserTeam[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
@@ -144,7 +151,10 @@ export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
   });
   const [newRoom, setNewRoom] = useState({ name: '', description: '', type: 'text' as WorkChatRoom['type'] });
   const [newMessage, setNewMessage] = useState('');
+  const [chatSearch, setChatSearch] = useState('');
   const [replyToMessage, setReplyToMessage] = useState<WorkChatMessage | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [activeTab, setActiveTab] = useState<'tasks' | 'members' | 'chat'>('tasks');
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
 
   const selectedTeam = useMemo(
@@ -167,10 +177,20 @@ export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
     () => visibleStatuses.reduce((count, status) => count + tasks[status].length, 0),
     [tasks],
   );
+  const filteredMessages = useMemo(
+    () => filterChatMessages(messages, chatSearch),
+    [messages, chatSearch],
+  );
 
   useEffect(() => {
     void loadInitialData();
   }, [mode, user?.id]);
+
+  useEffect(() => {
+    if (mode === 'employee' && activeTab === 'members') {
+      setActiveTab('tasks');
+    }
+  }, [activeTab, mode]);
 
   useEffect(() => {
     if (!selectedTeamId) return;
@@ -576,26 +596,39 @@ export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
   };
 
   const handleSendMessage = async () => {
-    if (!selectedRoomId || !newMessage.trim() || !user?.id) return;
+    if (!selectedRoomId || (!newMessage.trim() && pendingFiles.length === 0) || !user?.id) return;
     const content = newMessage.trim();
+    const files = pendingFiles;
     setNewMessage('');
+    setPendingFiles([]);
     try {
+      const attachments = files.length > 0
+        ? await Promise.all(files.map((file) => uploadChatAttachment(selectedRoomId, file)))
+        : [];
       await sendChatMessage({
         room_id: selectedRoomId,
         parent_id: replyToMessage?.id ?? null,
         user_id: user.id,
-        content,
+        content: content || attachmentFallbackText(attachments),
+        attachments,
       });
       setReplyToMessage(null);
       await loadMessages(selectedRoomId);
     } catch (error) {
       setNewMessage(content);
+      setPendingFiles(files);
       toast({
         title: 'Message not sent',
         description: errorMessage(error, 'Unable to send message.'),
         variant: 'destructive',
       });
     }
+  };
+
+  const handleAttachFiles = (files: FileList | null) => {
+    if (!files) return;
+    setPendingFiles((current) => [...current, ...Array.from(files)]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleToggleReaction = async (message: WorkChatMessage, reaction: string) => {
@@ -761,10 +794,10 @@ export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
               </div>
             </div>
 
-            <Tabs defaultValue="tasks" className="space-y-4">
-              <TabsList className="grid w-full max-w-sm grid-cols-3">
+            <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)} className="space-y-4">
+              <TabsList className={cn('grid w-full max-w-sm', mode === 'admin' ? 'grid-cols-3' : 'grid-cols-2')}>
                 <TabsTrigger value="tasks">Tasks</TabsTrigger>
-                <TabsTrigger value="members">Roles</TabsTrigger>
+                {mode === 'admin' ? <TabsTrigger value="members">Roles</TabsTrigger> : null}
                 <TabsTrigger value="chat">Chat</TabsTrigger>
               </TabsList>
 
@@ -923,38 +956,40 @@ export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
                 )}
               </TabsContent>
 
-              <TabsContent value="members">
-                <Card>
-                  <CardContent className="divide-y p-0">
-                    {members.map((member) => (
-                      <div key={member.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex items-center gap-3">
-                          <Avatar>
-                            <AvatarImage src={member.profile?.avatar_url || undefined} />
-                            <AvatarFallback>{initials(member.profile?.full_name || member.profile?.email || 'U')}</AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <div className="font-medium">{member.profile?.full_name || 'Unknown user'}</div>
-                            <div className="text-sm text-muted-foreground">{member.profile?.email}</div>
+              {mode === 'admin' ? (
+                <TabsContent value="members">
+                  <Card>
+                    <CardContent className="divide-y p-0">
+                      {members.map((member) => (
+                        <div key={member.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex items-center gap-3">
+                            <Avatar>
+                              <AvatarImage src={member.profile?.avatar_url || undefined} />
+                              <AvatarFallback>{initials(member.profile?.full_name || member.profile?.email || 'U')}</AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <div className="font-medium">{member.profile?.full_name || 'Unknown user'}</div>
+                              <div className="text-sm text-muted-foreground">{member.profile?.email}</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {canManageTeam ? (
+                              <RoleSelect value={member.role} onChange={(role) => handleRoleChange(member, role)} />
+                            ) : (
+                              <Badge variant="secondary">{roleLabel(member.role)}</Badge>
+                            )}
+                            {canManageTeam && member.user_id !== user?.id ? (
+                              <Button variant="ghost" size="icon" onClick={() => handleRemoveMember(member)}>
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            ) : null}
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          {canManageTeam ? (
-                            <RoleSelect value={member.role} onChange={(role) => handleRoleChange(member, role)} />
-                          ) : (
-                            <Badge variant="secondary">{roleLabel(member.role)}</Badge>
-                          )}
-                          {canManageTeam && member.user_id !== user?.id ? (
-                            <Button variant="ghost" size="icon" onClick={() => handleRemoveMember(member)}>
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          ) : null}
-                        </div>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              </TabsContent>
+                      ))}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              ) : null}
 
               <TabsContent value="chat">
                 <div className="grid min-h-[560px] gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
@@ -1019,30 +1054,47 @@ export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
                     </CardContent>
                   </Card>
 
-                  <Card className="flex min-h-[560px] flex-col overflow-hidden">
+                  <Card className="flex h-[640px] min-h-[560px] flex-col overflow-hidden">
                     <CardHeader className="border-b py-3">
-                      <div className="flex items-center justify-between gap-3">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <div>
                           <CardTitle className="text-base">
                             {rooms.find((room) => room.id === selectedRoomId)?.name || 'Team chat'}
                           </CardTitle>
                           <p className="text-xs text-muted-foreground">
-                            {messages.length} messages
+                            {filteredMessages.length === messages.length
+                              ? `${messages.length} messages`
+                              : `${filteredMessages.length} of ${messages.length} messages`}
                           </p>
                         </div>
-                        <Badge variant="outline" className="font-normal">
-                          Team visible
-                        </Badge>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                          <div className="relative">
+                            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                              value={chatSearch}
+                              onChange={(event) => setChatSearch(event.target.value)}
+                              placeholder="Search messages"
+                              className="h-9 w-full pl-8 sm:w-[220px]"
+                            />
+                          </div>
+                          <Badge variant="outline" className="w-fit font-normal">
+                            Team visible
+                          </Badge>
+                        </div>
                       </div>
                     </CardHeader>
-                    <ScrollArea className="flex-1 p-4">
+                    <ScrollArea className="min-h-0 flex-1 p-4">
                       <div className="space-y-4">
                         {messages.length === 0 ? (
                           <div className="flex min-h-[320px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
                             Start the team conversation.
                           </div>
+                        ) : filteredMessages.length === 0 ? (
+                          <div className="flex min-h-[320px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
+                            No messages match your search.
+                          </div>
                         ) : (
-                          messages.map((message) => (
+                          filteredMessages.map((message) => (
                             <ChatMessageRow
                               key={message.id}
                               message={message}
@@ -1066,7 +1118,41 @@ export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
                           </Button>
                         </div>
                       ) : null}
+                      {pendingFiles.length > 0 ? (
+                        <div className="mb-2 flex flex-wrap gap-2">
+                          {pendingFiles.map((file, index) => (
+                            <div key={`${file.name}-${index}`} className="flex items-center gap-2 rounded-md border px-2 py-1 text-xs">
+                              {file.type.startsWith('image/') ? <Image className="h-3.5 w-3.5" /> : <FileText className="h-3.5 w-3.5" />}
+                              <span className="max-w-[180px] truncate">{file.name}</span>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-5 w-5"
+                                onClick={() => setPendingFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                       <div className="flex gap-2">
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          multiple
+                          className="hidden"
+                          onChange={(event) => handleAttachFiles(event.target.files)}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          disabled={!selectedRoomId}
+                          onClick={() => fileInputRef.current?.click()}
+                        >
+                          <Paperclip className="h-4 w-4" />
+                        </Button>
                         <Input
                           value={newMessage}
                           onChange={(event) => setNewMessage(event.target.value)}
@@ -1079,7 +1165,7 @@ export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
                           placeholder={selectedRoomId ? 'Message the team' : 'Select a room'}
                           disabled={!selectedRoomId}
                         />
-                        <Button onClick={handleSendMessage} disabled={!selectedRoomId || !newMessage.trim()}>
+                        <Button onClick={handleSendMessage} disabled={!selectedRoomId || (!newMessage.trim() && pendingFiles.length === 0)}>
                           <Send className="h-4 w-4" />
                         </Button>
                       </div>
@@ -1133,6 +1219,13 @@ function ChatMessageRow({
           </button>
         ) : null}
         <p className="mt-1 whitespace-pre-wrap text-sm leading-6">{message.content}</p>
+        {message.attachments?.length ? (
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {message.attachments.map((attachment) => (
+              <ChatAttachmentPreview key={attachment.path} attachment={attachment} />
+            ))}
+          </div>
+        ) : null}
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           {reactionEntries.map(([reaction, userIds]) => {
             const reacted = currentUserId ? userIds.includes(currentUserId) : false;
@@ -1169,6 +1262,30 @@ function ChatMessageRow({
         </div>
       </div>
     </div>
+  );
+}
+
+function ChatAttachmentPreview({ attachment }: { attachment: WorkChatAttachment }) {
+  const isImage = attachment.type.startsWith('image/');
+
+  return (
+    <a
+      href={attachment.url ?? '#'}
+      target="_blank"
+      rel="noreferrer"
+      className="overflow-hidden rounded-md border bg-background hover:bg-muted/50"
+    >
+      {isImage && attachment.url ? (
+        <img src={attachment.url} alt={attachment.name} className="h-36 w-full object-cover" />
+      ) : null}
+      <div className="flex items-center gap-2 p-2 text-xs">
+        {isImage ? <Image className="h-4 w-4 text-muted-foreground" /> : <FileText className="h-4 w-4 text-muted-foreground" />}
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-medium">{attachment.name}</div>
+          <div className="text-muted-foreground">{formatFileSize(attachment.size)}</div>
+        </div>
+      </div>
+    </a>
   );
 }
 
@@ -1382,6 +1499,38 @@ function toggleReaction(reactions: Record<string, string[]>, reaction: string, u
   }
 
   return next;
+}
+
+function filterChatMessages(messages: WorkChatMessage[], query: string) {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return messages;
+
+  return messages.filter((message) => {
+    const searchable = [
+      message.content,
+      message.user?.full_name,
+      message.parent?.content,
+      message.parent?.user_full_name,
+      ...(message.attachments ?? []).map((attachment) => attachment.name),
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    return searchable.includes(normalized);
+  });
+}
+
+function attachmentFallbackText(attachments: WorkChatAttachment[]) {
+  if (attachments.length === 0) return '';
+  if (attachments.length === 1) return `Shared ${attachments[0].name}`;
+  return `Shared ${attachments.length} files`;
+}
+
+function formatFileSize(size: number) {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function initials(value: string) {

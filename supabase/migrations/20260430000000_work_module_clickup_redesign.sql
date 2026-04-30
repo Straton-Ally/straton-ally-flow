@@ -140,6 +140,7 @@ CREATE TABLE IF NOT EXISTS work_chat_messages (
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     content TEXT NOT NULL,
     mentions TEXT[] DEFAULT '{}',
+    attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
     reactions JSONB NOT NULL DEFAULT '{}'::jsonb,
     is_edited BOOLEAN DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -147,6 +148,7 @@ CREATE TABLE IF NOT EXISTS work_chat_messages (
 );
 
 ALTER TABLE work_chat_messages ADD COLUMN IF NOT EXISTS parent_id UUID REFERENCES work_chat_messages(id) ON DELETE CASCADE;
+ALTER TABLE work_chat_messages ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE work_chat_messages ADD COLUMN IF NOT EXISTS reactions JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 ALTER TABLE work_chat_messages ENABLE ROW LEVEL SECURITY;
