@@ -23,7 +23,7 @@ const navItems = [
   { label: 'Tasks', href: '/employee/tasks' },
   { label: 'Team', href: '/employee/team' },
   { label: 'Salary', href: '/employee/salary' },
-  { label: 'Work', href: '/work' },
+  { label: 'Work', href: '/teams' },
 ];
 
 export function EmployeeTopNav() {

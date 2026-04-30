@@ -1,0 +1,832 @@
+{
+  "nodes": [
+    {
+      "id": "eslint_config",
+      "label": "ESLint Configuration",
+      "file_type": "code",
+      "source_file": "eslint.config.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "postcss_config",
+      "label": "PostCSS Configuration",
+      "file_type": "code",
+      "source_file": "postcss.config.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "server_js",
+      "label": "Static File Server",
+      "file_type": "code",
+      "source_file": "server.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "tailwind_config",
+      "label": "Tailwind CSS Configuration",
+      "file_type": "code",
+      "source_file": "tailwind.config.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "vite_config",
+      "label": "Vite Build Configuration",
+      "file_type": "code",
+      "source_file": "vite.config.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "vitest_config",
+      "label": "Vitest Test Configuration",
+      "file_type": "code",
+      "source_file": "vitest.config.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "sw_js",
+      "label": "Service Worker (PWA)",
+      "file_type": "code",
+      "source_file": "public/sw.js",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "app_tsx",
+      "label": "App Root Component",
+      "file_type": "code",
+      "source_file": "src/App.tsx",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "main_tsx",
+      "label": "Application Entry Point",
+      "file_type": "code",
+      "source_file": "src/main.tsx",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "vite_env_dts",
+      "label": "Vite Environment Type Declarations",
+      "file_type": "code",
+      "source_file": "src/vite-env.d.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "navlink_tsx",
+      "label": "NavLink Wrapper Component",
+      "file_type": "code",
+      "source_file": "src/components/NavLink.tsx",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "protected_route",
+      "label": "ProtectedRoute Auth Guard",
+      "file_type": "code",
+      "source_file": "src/components/auth/ProtectedRoute.tsx",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "attendance_chart",
+      "label": "AttendanceChart Dashboard Widget",
+      "file_type": "code",
+      "source_file": "src/components/dashboard/AttendanceChart.tsx",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "attendance_heatmap",
+      "label": "AttendanceHeatmap Dashboard Widget",
+      "file_type": "code",
+      "source_file": "src/components/dashboard/AttendanceHeatmap.tsx",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "dashboard_header",
+      "label": "DashboardHeader Component",
+      "file_type": "code",
+      "source_file": "src/components/dashboard/DashboardHeader.tsx",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "metric_card",
+      "label": "MetricCard Component",
+      "file_type": "code",
+      "source_file": "src/components/dashboard/MetricCard.tsx",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "payroll_grid",
+      "label": "PayrollGrid Dashboard Widget",
+      "file_type": "code",
+      "source_file": "src/components/dashboard/PayrollGrid.tsx",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "payroll_table",
+      "label": "PayrollTable Component",
+      "file_type": "code",
+      "source_file": "src/components/dashboard/PayrollTable.tsx",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "project_status_table",
+      "label": "ProjectStatusTable Component",
+      "file_type": "code",
+      "source_file": "src/components/dashboard/ProjectStatusTable.tsx",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "quick_stats",
+      "label": "QuickStats Dashboard Component",
+      "file_type": "code",
+      "source_file": "src/components/dashboard/QuickStats.tsx",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "schedule_card",
+      "label": "ScheduleCard Dashboard Widget",
+      "file_type": "code",
+      "source_file": "src/components/dashboard/ScheduleCard.tsx",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "hooks_use_auth",
+      "label": "useAuth Hook",
+      "file_type": "code",
+      "source_file": "src/hooks/useAuth.tsx",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "lib_auth",
+      "label": "Auth Library (AppRole)",
+      "file_type": "code",
+      "source_file": "src/lib/auth.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "lib_utils",
+      "label": "Utility Functions (cn, formatCurrencyPKR)",
+      "file_type": "code",
+      "source_file": "src/lib/utils.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "layout_flowhr",
+      "label": "FlowHRLayout Admin Layout",
+      "file_type": "code",
+      "source_file": "src/components/layout/FlowHRLayout.tsx",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "layout_employee_new",
+      "label": "EmployeeLayoutNew Employee Layout",
+      "file_type": "code",
+      "source_file": "src/components/layout/EmployeeLayoutNew.tsx",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "work_layout",
+      "label": "WorkLayout (Old Work Module)",
+      "file_type": "code",
+      "source_file": "src/components/work/WorkLayout.tsx",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "work_v2_teams_list",
+      "label": "TeamsList (Work V2)",
+      "file_type": "code",
+      "source_file": "src/components/work/v2/TeamsList.tsx",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "work_v2_project_board",
+      "label": "ProjectBoard (Work V2)",
+      "file_type": "code",
+      "source_file": "src/components/work/v2/ProjectBoard.tsx",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "work_v2_team_chat",
+      "label": "TeamChat (Work V2)",
+      "file_type": "code",
+      "source_file": "src/components/work/v2/TeamChat.tsx",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "work_v2_task_detail",
+      "label": "TaskDetail (Work V2)",
+      "file_type": "code",
+      "source_file": "src/components/work/v2/TaskDetail.tsx",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "pwa_install_prompt",
+      "label": "PWAInstallPrompt Component",
+      "file_type": "code",
+      "source_file": "src/components/ui/pwa-install-prompt.tsx",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "service_worker_registration",
+      "label": "ServiceWorkerRegistration (inline App.tsx)",
+      "file_type": "code",
+      "source_file": "src/App.tsx",
+      "source_location": "line 57",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "query_client",
+      "label": "TanStack QueryClient Instance",
+      "file_type": "code",
+      "source_file": "src/App.tsx",
+      "source_location": "line 55",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "tailwind_design_tokens",
+      "label": "Tailwind Design Token System (CSS Variables)",
+      "file_type": "code",
+      "source_file": "tailwind.config.ts",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "main_tsx",
+      "target": "app_tsx",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/main.tsx",
+      "source_location": "line 5",
+      "weight": 1.0
+    },
+    {
+      "source": "app_tsx",
+      "target": "protected_route",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/App.tsx",
+      "source_location": "line 9",
+      "weight": 1.0
+    },
+    {
+      "source": "app_tsx",
+      "target": "hooks_use_auth",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/App.tsx",
+      "source_location": "line 8",
+      "weight": 1.0
+    },
+    {
+      "source": "app_tsx",
+      "target": "layout_flowhr",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/App.tsx",
+      "source_location": "line 19",
+      "weight": 1.0
+    },
+    {
+      "source": "app_tsx",
+      "target": "layout_employee_new",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/App.tsx",
+      "source_location": "line 35",
+      "weight": 1.0
+    },
+    {
+      "source": "app_tsx",
+      "target": "work_layout",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/App.tsx",
+      "source_location": "line 46",
+      "weight": 1.0
+    },
+    {
+      "source": "app_tsx",
+      "target": "work_v2_teams_list",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/App.tsx",
+      "source_location": "line 50",
+      "weight": 1.0
+    },
+    {
+      "source": "app_tsx",
+      "target": "work_v2_project_board",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/App.tsx",
+      "source_location": "line 51",
+      "weight": 1.0
+    },
+    {
+      "source": "app_tsx",
+      "target": "work_v2_team_chat",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/App.tsx",
+      "source_location": "line 52",
+      "weight": 1.0
+    },
+    {
+      "source": "app_tsx",
+      "target": "work_v2_task_detail",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/App.tsx",
+      "source_location": "line 53",
+      "weight": 1.0
+    },
+    {
+      "source": "app_tsx",
+      "target": "pwa_install_prompt",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/App.tsx",
+      "source_location": "line 10",
+      "weight": 1.0
+    },
+    {
+      "source": "app_tsx",
+      "target": "service_worker_registration",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/App.tsx",
+      "source_location": "line 57-64",
+      "weight": 1.0
+    },
+    {
+      "source": "service_worker_registration",
+      "target": "sw_js",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/App.tsx",
+      "source_location": "line 61",
+      "weight": 1.0
+    },
+    {
+      "source": "app_tsx",
+      "target": "query_client",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/App.tsx",
+      "source_location": "line 55",
+      "weight": 1.0
+    },
+    {
+      "source": "protected_route",
+      "target": "hooks_use_auth",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/components/auth/ProtectedRoute.tsx",
+      "source_location": "line 12",
+      "weight": 1.0
+    },
+    {
+      "source": "protected_route",
+      "target": "lib_auth",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/components/auth/ProtectedRoute.tsx",
+      "source_location": "line 3",
+      "weight": 1.0
+    },
+    {
+      "source": "dashboard_header",
+      "target": "hooks_use_auth",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/components/dashboard/DashboardHeader.tsx",
+      "source_location": "line 1",
+      "weight": 1.0
+    },
+    {
+      "source": "navlink_tsx",
+      "target": "lib_utils",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/components/NavLink.tsx",
+      "source_location": "line 3",
+      "weight": 1.0
+    },
+    {
+      "source": "attendance_heatmap",
+      "target": "lib_utils",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/components/dashboard/AttendanceHeatmap.tsx",
+      "source_location": "line 3",
+      "weight": 1.0
+    },
+    {
+      "source": "metric_card",
+      "target": "lib_utils",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/components/dashboard/MetricCard.tsx",
+      "source_location": "line 2",
+      "weight": 1.0
+    },
+    {
+      "source": "payroll_grid",
+      "target": "lib_utils",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/components/dashboard/PayrollGrid.tsx",
+      "source_location": "line 3",
+      "weight": 1.0
+    },
+    {
+      "source": "payroll_table",
+      "target": "lib_utils",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/components/dashboard/PayrollTable.tsx",
+      "source_location": "line 15",
+      "weight": 1.0
+    },
+    {
+      "source": "project_status_table",
+      "target": "lib_utils",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/components/dashboard/ProjectStatusTable.tsx",
+      "source_location": "line 4",
+      "weight": 1.0
+    },
+    {
+      "source": "quick_stats",
+      "target": "lib_utils",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/components/dashboard/QuickStats.tsx",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "vite_config",
+      "target": "eslint_config",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.7,
+      "source_file": "vite.config.ts",
+      "source_location": null,
+      "weight": 0.7
+    },
+    {
+      "source": "tailwind_config",
+      "target": "postcss_config",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "tailwind.config.ts",
+      "source_location": null,
+      "weight": 0.85
+    },
+    {
+      "source": "vite_config",
+      "target": "vitest_config",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "vitest.config.ts",
+      "source_location": null,
+      "weight": 0.9
+    },
+    {
+      "source": "server_js",
+      "target": "vite_config",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "server.js",
+      "source_location": null,
+      "weight": 0.8
+    },
+    {
+      "source": "tailwind_config",
+      "target": "tailwind_design_tokens",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "tailwind.config.ts",
+      "source_location": "line 21-76",
+      "weight": 1.0
+    },
+    {
+      "source": "attendance_chart",
+      "target": "tailwind_design_tokens",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "src/components/dashboard/AttendanceChart.tsx",
+      "source_location": null,
+      "weight": 0.85
+    },
+    {
+      "source": "attendance_heatmap",
+      "target": "tailwind_design_tokens",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "src/components/dashboard/AttendanceHeatmap.tsx",
+      "source_location": null,
+      "weight": 0.85
+    },
+    {
+      "source": "payroll_grid",
+      "target": "tailwind_design_tokens",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "src/components/dashboard/PayrollGrid.tsx",
+      "source_location": null,
+      "weight": 0.85
+    },
+    {
+      "source": "metric_card",
+      "target": "tailwind_design_tokens",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "src/components/dashboard/MetricCard.tsx",
+      "source_location": null,
+      "weight": 0.85
+    },
+    {
+      "source": "attendance_chart",
+      "target": "attendance_heatmap",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.88,
+      "source_file": "src/components/dashboard/AttendanceChart.tsx",
+      "source_location": null,
+      "weight": 0.88
+    },
+    {
+      "source": "payroll_grid",
+      "target": "payroll_table",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "src/components/dashboard/PayrollGrid.tsx",
+      "source_location": null,
+      "weight": 0.9
+    },
+    {
+      "source": "protected_route",
+      "target": "app_tsx",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "src/components/auth/ProtectedRoute.tsx",
+      "source_location": null,
+      "weight": 0.9
+    },
+    {
+      "source": "sw_js",
+      "target": "pwa_install_prompt",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "public/sw.js",
+      "source_location": null,
+      "weight": 0.75
+    },
+    {
+      "source": "vite_env_dts",
+      "target": "vite_config",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "src/vite-env.d.ts",
+      "source_location": "line 1",
+      "weight": 0.8
+    },
+    {
+      "source": "work_v2_teams_list",
+      "target": "work_layout",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.7,
+      "source_file": "src/components/work/v2/TeamsList.tsx",
+      "source_location": null,
+      "weight": 0.7
+    },
+    {
+      "source": "work_v2_project_board",
+      "target": "project_status_table",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.72,
+      "source_file": "src/components/work/v2/ProjectBoard.tsx",
+      "source_location": null,
+      "weight": 0.72
+    },
+    {
+      "source": "payroll_table",
+      "target": "payroll_grid",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "src/components/dashboard/PayrollTable.tsx",
+      "source_location": null,
+      "weight": 0.85
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "admin_route_protection_flow",
+      "label": "Admin Route Authentication Flow",
+      "nodes": ["app_tsx", "protected_route", "hooks_use_auth"],
+      "relation": "participate_in",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/App.tsx"
+    },
+    {
+      "id": "dashboard_attendance_widgets",
+      "label": "Dashboard Attendance Visualization Cluster",
+      "nodes": ["attendance_chart", "attendance_heatmap", "metric_card"],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.82,
+      "source_file": "src/components/dashboard/AttendanceChart.tsx"
+    },
+    {
+      "id": "build_toolchain",
+      "label": "Frontend Build Toolchain",
+      "nodes": ["vite_config", "tailwind_config", "postcss_config"],
+      "relation": "form",
+      "confidence": "INFERRED",
+      "confidence_score": 0.88,
+      "source_file": "vite.config.ts"
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

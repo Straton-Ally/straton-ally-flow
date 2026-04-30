@@ -42,9 +42,11 @@ import NotificationsPage from "./pages/employee/Notifications";
 import ChatPage from "./pages/employee/Chat";
 import EmployeeSettings from "./pages/employee/Settings";
 
-// Work Module
-import { WorkLayout } from "./components/work/WorkLayout";
-import WorkPage from "./pages/work/WorkPage";
+// Work Module V2 (Teams/Projects)
+import TeamsList from "./components/work/v2/TeamsList";
+import ProjectBoard from "./components/work/v2/ProjectBoard";
+import TeamChat from "./components/work/v2/TeamChat";
+import TaskDetail from "./components/work/v2/TaskDetail";
 
 const queryClient = new QueryClient();
 
@@ -120,19 +122,12 @@ const App = () => (
               <Route path="settings" element={<EmployeeSettings />} />
             </Route>
 
-            {/* Work Module routes */}
-            <Route
-              path="/work"
-              element={
-                <ProtectedRoute>
-                  <WorkLayout />
-                </ProtectedRoute>
-              }
-            >
-              <Route index element={<WorkPage />} />
-              <Route path=":officeId" element={<WorkPage />} />
-              <Route path=":officeId/channel/:channelId" element={<WorkPage />} />
-            </Route>
+            {/* Work Module V2 - Teams/Projects with nested routes */}
+            <Route path="/teams" element={<TeamsList />} />
+            <Route path="/teams/:teamId/*" element={<ProjectBoard />} />
+            <Route path="/teams/:teamId/task/:taskId" element={<TaskDetail />} />
+            <Route path="/teams/:teamId/chat" element={<TeamChat />} />
+            <Route path="/teams/:teamId/chat/:roomId" element={<TeamChat />} />
 
             {/* Catch-all */}
             <Route path="*" element={<NotFound />} />

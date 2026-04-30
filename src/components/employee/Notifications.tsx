@@ -445,7 +445,7 @@ export function Notifications() {
   const getNotificationTarget = (notification: WorkNotification) => {
     if (notification.action_url) return notification.action_url;
     if (notification.office_id && notification.channel_id) {
-      return `/work/${notification.office_id}/channel/${notification.channel_id}`;
+      return `/teams`;
     }
     if (
       notification.type === 'attendance_checkout_reminder' ||
@@ -459,7 +459,7 @@ export function Notifications() {
     if (notification.type === 'overtime_request') {
       return '/admin/attendance';
     }
-    return '/work';
+    return '/teams';
   };
 
   const handleBulkDelete = async () => {

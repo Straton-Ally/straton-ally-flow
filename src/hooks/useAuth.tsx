@@ -163,7 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           const url =
             row.action_url ||
-            (row.office_id && row.channel_id ? `/work/${row.office_id}/channel/${row.channel_id}` : '/work');
+            (row.office_id && row.channel_id ? `/teams` : '/teams');
 
           playNotificationSound();
 
