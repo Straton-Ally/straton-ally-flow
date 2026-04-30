@@ -115,6 +115,7 @@ export interface WorkChatAttachment {
   size: number
   path: string
   url?: string | null
+  download_url?: string | null
 }
 
 export interface WorkChatMessage {

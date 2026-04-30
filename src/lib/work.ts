@@ -418,12 +418,18 @@ async function hydrateChatAttachments(attachments: WorkChatAttachment[]) {
 
   return Promise.all(attachments.map(async (attachment) => {
     if (!attachment.path) return attachment;
-    const { data } = await workDb.storage
+    const [{ data }, { data: downloadData }] = await Promise.all([
+      workDb.storage
       .from('work-chat-attachments')
-      .createSignedUrl(attachment.path, 60 * 60);
+        .createSignedUrl(attachment.path, 60 * 60),
+      workDb.storage
+        .from('work-chat-attachments')
+        .createSignedUrl(attachment.path, 60 * 60, { download: attachment.name }),
+    ]);
     return {
       ...attachment,
       url: data?.signedUrl ?? null,
+      download_url: downloadData?.signedUrl ?? data?.signedUrl ?? null,
     };
   }));
 }

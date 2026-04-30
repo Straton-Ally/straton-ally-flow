@@ -4,6 +4,7 @@ import {
   Briefcase,
   Calendar,
   CheckCircle2,
+  Download,
   FileText,
   Flag,
   Image,
@@ -211,6 +212,30 @@ export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
       return;
     }
     void loadMessages(selectedRoomId);
+  }, [selectedRoomId]);
+
+  useEffect(() => {
+    if (!selectedRoomId) return;
+
+    const realtime = supabase
+      .channel(`workspace-chat:${selectedRoomId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'work_chat_messages',
+          filter: `room_id=eq.${selectedRoomId}`,
+        },
+        () => {
+          void loadMessages(selectedRoomId);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      realtime.unsubscribe();
+    };
   }, [selectedRoomId]);
 
   const loadInitialData = async () => {
@@ -1267,16 +1292,19 @@ function ChatMessageRow({
 
 function ChatAttachmentPreview({ attachment }: { attachment: WorkChatAttachment }) {
   const isImage = attachment.type.startsWith('image/');
+  const previewUrl = attachment.url || attachment.download_url || '';
+  const downloadUrl = attachment.download_url || attachment.url || '';
 
   return (
-    <a
-      href={attachment.url ?? '#'}
-      target="_blank"
-      rel="noreferrer"
-      className="overflow-hidden rounded-md border bg-background hover:bg-muted/50"
-    >
-      {isImage && attachment.url ? (
-        <img src={attachment.url} alt={attachment.name} className="h-36 w-full object-cover" />
+    <div className="overflow-hidden rounded-md border bg-background">
+      {isImage && previewUrl ? (
+        <a href={previewUrl} target="_blank" rel="noreferrer">
+          <img src={previewUrl} alt={attachment.name} className="h-36 w-full object-cover" />
+        </a>
+      ) : isImage ? (
+        <div className="flex h-36 items-center justify-center bg-muted text-xs text-muted-foreground">
+          Image preview unavailable
+        </div>
       ) : null}
       <div className="flex items-center gap-2 p-2 text-xs">
         {isImage ? <Image className="h-4 w-4 text-muted-foreground" /> : <FileText className="h-4 w-4 text-muted-foreground" />}
@@ -1284,8 +1312,19 @@ function ChatAttachmentPreview({ attachment }: { attachment: WorkChatAttachment 
           <div className="truncate font-medium">{attachment.name}</div>
           <div className="text-muted-foreground">{formatFileSize(attachment.size)}</div>
         </div>
+        <Button variant="ghost" size="icon" className="h-8 w-8" disabled={!downloadUrl} asChild={Boolean(downloadUrl)}>
+          {downloadUrl ? (
+            <a href={downloadUrl} download={attachment.name} aria-label={`Download ${attachment.name}`}>
+              <Download className="h-4 w-4" />
+            </a>
+          ) : (
+            <span aria-label={`Download ${attachment.name}`}>
+              <Download className="h-4 w-4" />
+            </span>
+          )}
+        </Button>
       </div>
-    </a>
+    </div>
   );
 }
 
