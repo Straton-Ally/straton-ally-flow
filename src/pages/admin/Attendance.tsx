@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { formatTime12h } from '@/lib/utils';
+import { formatTimeOnlyInTimeZone, intervalToMinutes, PAKISTAN_TIME_ZONE, UK_TIME_ZONE, zonedTimeToUtc } from '@/lib/timezones';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -43,6 +44,9 @@ interface AttendanceRecord {
   attendance_time_zone: string | null;
   check_in_uk_time: string | null;
   check_out_uk_time: string | null;
+  break_duration: string | null;
+  break_total_minutes: number;
+  total_work_minutes: number | null;
   employee: {
     id: string;
     employee_id: string;
@@ -67,6 +71,7 @@ interface Employee {
 interface Office {
   id: string;
   name: string;
+  breakDurationMinutes: number;
 }
 
 interface EarlyCheckoutRequestRow {
@@ -126,12 +131,14 @@ export default function Attendance() {
     employeeId: '',
     inTime: '',
     outTime: '',
+    breakMinutes: '45',
     status: 'present',
   });
   const [editAttendance, setEditAttendance] = useState({
     date: selectedDate,
     inTime: '',
     outTime: '',
+    breakMinutes: '0',
     status: 'present',
   });
 
@@ -150,14 +157,25 @@ export default function Attendance() {
 
   const dateTimeIso = (date: string, time: string) => {
     if (!date || !time) return null;
-    return new Date(`${date}T${time}:00`).toISOString();
+    return zonedTimeToUtc(date, time, PAKISTAN_TIME_ZONE)?.toISOString() ?? null;
   };
 
-  const calculateWorkMinutes = (inTime: string, outTime: string) => {
+  const timeInZoneFromPakistan = (date: string, time: string, timeZone: string) => {
+    const utc = zonedTimeToUtc(date, time, PAKISTAN_TIME_ZONE);
+    return utc ? formatTimeOnlyInTimeZone(utc, timeZone, false) : null;
+  };
+
+  const calculateWorkMinutes = (inTime: string, outTime: string, breakMinutes = 0) => {
     const start = timeToMinutes(inTime);
     const end = timeToMinutes(outTime);
     if (start === null || end === null || end < start) return null;
-    return end - start;
+    return Math.max(0, end - start - Math.max(0, breakMinutes));
+  };
+
+  const formatWorkMinutes = (minutes: number | null | undefined) => {
+    if (minutes === null || minutes === undefined) return '-';
+    const safe = Math.max(0, Math.floor(minutes));
+    return `${String(Math.floor(safe / 60)).padStart(2, '0')}:${String(safe % 60).padStart(2, '0')}`;
   };
 
   const resetFilters = () => {
@@ -203,12 +221,27 @@ export default function Attendance() {
   };
 
   const fetchOffices = async () => {
-    const { data, error } = await supabase.from('offices').select('id, name').order('name');
+    const { data, error } = await supabase.from('offices').select('id, name, office_settings(break_duration)').order('name');
     if (error) {
       console.error('Error fetching offices:', error);
       return;
     }
-    setOffices(data ?? []);
+    setOffices(
+      (data ?? []).map((office) => {
+        const settings = Array.isArray(office.office_settings) ? office.office_settings[0] : office.office_settings;
+        return {
+          id: office.id,
+          name: office.name,
+          breakDurationMinutes: intervalToMinutes(settings?.break_duration, 45),
+        };
+      }),
+    );
+  };
+
+  const getEmployeeSopBreakMinutes = (employeeId: string) => {
+    const employee = employees.find((emp) => emp.id === employeeId);
+    const office = employee?.office_id ? offices.find((row) => row.id === employee.office_id) : null;
+    return office?.breakDurationMinutes ?? 45;
   };
 
   const fetchAttendance = async () => {
@@ -221,11 +254,14 @@ export default function Attendance() {
           date,
           in_time,
           out_time,
+          break_duration,
+          break_total_minutes,
           status,
           attendance_time_zone_name,
           attendance_time_zone,
           check_in_uk_time,
           check_out_uk_time,
+          total_work_minutes,
           employee_id
         `)
         .eq('date', selectedDate)
@@ -322,6 +358,9 @@ export default function Attendance() {
     }
 
     try {
+      const breakMinutes = Math.max(0, Number(newAttendance.breakMinutes) || 0);
+      const checkInUkTime = timeInZoneFromPakistan(selectedDate, newAttendance.inTime, UK_TIME_ZONE);
+      const checkOutUkTime = timeInZoneFromPakistan(selectedDate, newAttendance.outTime, UK_TIME_ZONE);
       const { error } = await supabase.from('attendance').insert({
         employee_id: newAttendance.employeeId,
         date: selectedDate,
@@ -329,7 +368,16 @@ export default function Attendance() {
         out_time: newAttendance.outTime || null,
         check_in_at: dateTimeIso(selectedDate, newAttendance.inTime),
         check_out_at: dateTimeIso(selectedDate, newAttendance.outTime),
-        total_work_minutes: calculateWorkMinutes(newAttendance.inTime, newAttendance.outTime),
+        attendance_time_zone_name: 'Pakistan Time',
+        attendance_time_zone: PAKISTAN_TIME_ZONE,
+        check_in_local_time: newAttendance.inTime || null,
+        check_out_local_time: newAttendance.outTime || null,
+        check_in_uk_time: checkInUkTime,
+        check_out_uk_time: checkOutUkTime,
+        break_start_at: null,
+        break_total_minutes: breakMinutes,
+        break_duration: `${breakMinutes} minutes`,
+        total_work_minutes: calculateWorkMinutes(newAttendance.inTime, newAttendance.outTime, breakMinutes),
         status: newAttendance.status,
       });
 
@@ -341,7 +389,7 @@ export default function Attendance() {
       });
 
       setIsDialogOpen(false);
-      setNewAttendance({ employeeId: '', inTime: '', outTime: '', status: 'present' });
+      setNewAttendance({ employeeId: '', inTime: '', outTime: '', breakMinutes: '45', status: 'present' });
       fetchAttendance();
     } catch (error: unknown) {
       toast({
@@ -358,6 +406,7 @@ export default function Attendance() {
       date: record.date,
       inTime: normalizeTime(record.in_time),
       outTime: normalizeTime(record.out_time),
+      breakMinutes: String(record.break_total_minutes ?? 0),
       status: record.status,
     });
   };
@@ -366,7 +415,10 @@ export default function Attendance() {
     if (!editingRecord) return;
     setIsSavingEdit(true);
     try {
-      const totalWorkMinutes = calculateWorkMinutes(editAttendance.inTime, editAttendance.outTime);
+      const breakMinutes = Math.max(0, Number(editAttendance.breakMinutes) || 0);
+      const totalWorkMinutes = calculateWorkMinutes(editAttendance.inTime, editAttendance.outTime, breakMinutes);
+      const checkInUkTime = timeInZoneFromPakistan(editAttendance.date, editAttendance.inTime, UK_TIME_ZONE);
+      const checkOutUkTime = timeInZoneFromPakistan(editAttendance.date, editAttendance.outTime, UK_TIME_ZONE);
       const { error } = await supabase
         .from('attendance')
         .update({
@@ -375,6 +427,15 @@ export default function Attendance() {
           out_time: editAttendance.outTime || null,
           check_in_at: dateTimeIso(editAttendance.date, editAttendance.inTime),
           check_out_at: dateTimeIso(editAttendance.date, editAttendance.outTime),
+          attendance_time_zone_name: 'Pakistan Time',
+          attendance_time_zone: PAKISTAN_TIME_ZONE,
+          check_in_local_time: editAttendance.inTime || null,
+          check_out_local_time: editAttendance.outTime || null,
+          check_in_uk_time: checkInUkTime,
+          check_out_uk_time: checkOutUkTime,
+          break_start_at: null,
+          break_total_minutes: breakMinutes,
+          break_duration: `${breakMinutes} minutes`,
           total_work_minutes: totalWorkMinutes,
           status: editAttendance.status,
         })
@@ -690,7 +751,7 @@ export default function Attendance() {
                 <Select
                   value={newAttendance.employeeId}
                   onValueChange={(value) =>
-                    setNewAttendance({ ...newAttendance, employeeId: value })
+                    setNewAttendance({ ...newAttendance, employeeId: value, breakMinutes: String(getEmployeeSopBreakMinutes(value)) })
                   }
                 >
                   <SelectTrigger>
@@ -727,6 +788,17 @@ export default function Attendance() {
                     }
                   />
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Break minutes</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={newAttendance.breakMinutes}
+                  onChange={(e) => setNewAttendance({ ...newAttendance, breakMinutes: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">Defaults to the employee office SOP break.</p>
               </div>
 
               <div className="space-y-2">
@@ -1101,6 +1173,8 @@ export default function Attendance() {
                   <TableHead>Time Zone</TableHead>
                   <TableHead>In Time</TableHead>
                   <TableHead>Out Time</TableHead>
+                  <TableHead>Break</TableHead>
+                  <TableHead>Hours</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -1135,6 +1209,8 @@ export default function Attendance() {
                         {record.check_out_uk_time && <p className="text-xs text-muted-foreground">UK: {formatTime12h(record.check_out_uk_time)}</p>}
                       </div>
                     </TableCell>
+                    <TableCell className="tabular-nums">{formatWorkMinutes(record.break_total_minutes)}</TableCell>
+                    <TableCell className="font-medium tabular-nums">{formatWorkMinutes(record.total_work_minutes)}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1.5 items-center">
                         {getStatusBadge(record.status)}
@@ -1209,6 +1285,17 @@ export default function Attendance() {
                     onChange={(e) => setEditAttendance({ ...editAttendance, outTime: e.target.value })}
                   />
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Break minutes</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={editAttendance.breakMinutes}
+                  onChange={(e) => setEditAttendance({ ...editAttendance, breakMinutes: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">Use this to correct forgotten or unfinished breaks.</p>
               </div>
 
               <div className="space-y-2">

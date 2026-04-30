@@ -73,7 +73,7 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
 import { formatTime12h } from '@/lib/utils';
-import { COMMON_TIME_ZONES, getSupportedTimeZones, isValidTimeZone } from '@/lib/timezones';
+import { COMMON_TIME_ZONES, getSupportedTimeZones, intervalToMinutes, isValidTimeZone, minutesToPostgresInterval } from '@/lib/timezones';
 import { NewEmployeeForm } from '@/components/employee/NewEmployeeForm';
 import { EditEmployeeForm } from '@/components/employee/EditEmployeeForm';
 
@@ -82,6 +82,7 @@ type ProfileStatus = 'active' | 'inactive' | 'locked';
 interface OfficeSettings {
   work_start_time: string;
   work_end_time: string;
+  break_duration_minutes: number;
   timezone: string;
   allowed_ip_ranges: string[] | null;
   require_ip_whitelist: boolean;
@@ -122,6 +123,7 @@ interface EmployeeRow {
 interface OfficeSettingsSelectRow {
   work_start_time: string;
   work_end_time: string;
+  break_duration: unknown;
   timezone: string;
   allowed_ip_ranges: string[] | null;
   require_ip_whitelist: boolean;
@@ -179,6 +181,7 @@ interface DutyScheduleTemplate {
   shift_type: 'regular' | 'rotating' | 'flexible' | 'night';
   start_time: string;
   end_time: string;
+  break_duration_minutes: number;
   work_days: string[];
   is_active: boolean;
   created_at?: string;
@@ -278,6 +281,7 @@ export default function Recruitment() {
     email: '',
     work_start_time: '09:00:00',
     work_end_time: '17:00:00',
+    break_duration_minutes: '45',
     timezone: 'UTC',
     require_ip_whitelist: false,
     allowed_ip_ranges_text: '',
@@ -305,6 +309,7 @@ export default function Recruitment() {
     shift_type: 'regular' as DutyScheduleTemplate['shift_type'],
     start_time: '09:00',
     end_time: '17:00',
+    break_duration_minutes: '45',
     work_days: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'] as string[],
     is_active: true,
   });
@@ -407,7 +412,7 @@ export default function Recruitment() {
       const { data, error } = await supabase
         .from('offices')
         .select(
-          'id,name,address,city,country,postal_code,phone,email,is_active,office_settings(work_start_time,work_end_time,timezone,allowed_ip_ranges,require_ip_whitelist,geo_fencing_enabled,latitude,longitude,radius_meters)',
+          'id,name,address,city,country,postal_code,phone,email,is_active,office_settings(work_start_time,work_end_time,break_duration,timezone,allowed_ip_ranges,require_ip_whitelist,geo_fencing_enabled,latitude,longitude,radius_meters)',
         )
         .order('created_at', { ascending: false });
 
@@ -427,6 +432,7 @@ export default function Recruitment() {
           ? {
               work_start_time: rawSettings.work_start_time,
               work_end_time: rawSettings.work_end_time,
+              break_duration_minutes: intervalToMinutes(rawSettings.break_duration, 45),
               timezone: rawSettings.timezone,
               allowed_ip_ranges: rawSettings.allowed_ip_ranges ?? null,
               require_ip_whitelist: Boolean(rawSettings.require_ip_whitelist),
@@ -651,7 +657,7 @@ export default function Recruitment() {
   const fetchScheduleTemplates = async () => {
     setIsScheduleTemplatesLoading(true);
     try {
-      const { data, error } = await supabase.from('duty_schedule_templates').select('id, schedule_name, shift_type, start_time, end_time, work_days, is_active, created_at').order('schedule_name');
+      const { data, error } = await supabase.from('duty_schedule_templates').select('id, schedule_name, shift_type, start_time, end_time, break_duration, work_days, is_active, created_at').order('schedule_name');
       if (error) throw error;
       const rows = ((data ?? []) as Record<string, unknown>[]).map((row) => ({
         id: row.id as string,
@@ -659,6 +665,7 @@ export default function Recruitment() {
         shift_type: row.shift_type as DutyScheduleTemplate['shift_type'],
         start_time: String(row.start_time ?? '').slice(0, 5),
         end_time: String(row.end_time ?? '').slice(0, 5),
+        break_duration_minutes: intervalToMinutes(row.break_duration, 45),
         work_days: Array.isArray(row.work_days) ? (row.work_days as string[]) : [],
         is_active: Boolean(row.is_active),
         created_at: row.created_at as string | undefined,
@@ -728,6 +735,7 @@ export default function Recruitment() {
       email: '',
       work_start_time: '09:00:00',
       work_end_time: '17:00:00',
+      break_duration_minutes: '45',
       timezone: 'UTC',
       require_ip_whitelist: false,
       allowed_ip_ranges_text: '',
@@ -751,6 +759,7 @@ export default function Recruitment() {
       email: office.email ?? '',
       work_start_time: office.settings?.work_start_time ?? '09:00:00',
       work_end_time: office.settings?.work_end_time ?? '17:00:00',
+      break_duration_minutes: String(office.settings?.break_duration_minutes ?? 45),
       timezone: office.settings?.timezone ?? 'UTC',
       require_ip_whitelist: Boolean(office.settings?.require_ip_whitelist),
       allowed_ip_ranges_text: (office.settings?.allowed_ip_ranges ?? []).join('\n'),
@@ -839,11 +848,12 @@ export default function Recruitment() {
     const latitude = officeForm.latitude.trim() ? Number(officeForm.latitude.trim()) : null;
     const longitude = officeForm.longitude.trim() ? Number(officeForm.longitude.trim()) : null;
     const radiusMeters = officeForm.radius_meters.trim() ? Number(officeForm.radius_meters.trim()) : null;
+    const breakDurationMinutes = Number(officeForm.break_duration_minutes);
 
-    if ((latitude !== null && Number.isNaN(latitude)) || (longitude !== null && Number.isNaN(longitude)) || (radiusMeters !== null && Number.isNaN(radiusMeters))) {
+    if ((latitude !== null && Number.isNaN(latitude)) || (longitude !== null && Number.isNaN(longitude)) || (radiusMeters !== null && Number.isNaN(radiusMeters)) || !Number.isFinite(breakDurationMinutes) || breakDurationMinutes < 0) {
       toast({
         title: 'Invalid values',
-        description: 'Latitude/longitude/radius must be numbers',
+        description: 'Latitude/longitude/radius/break duration must be valid numbers',
         variant: 'destructive',
       });
       return;
@@ -872,6 +882,7 @@ export default function Recruitment() {
             office_id: editingOffice.id,
             work_start_time: officeForm.work_start_time,
             work_end_time: officeForm.work_end_time,
+            break_duration: minutesToPostgresInterval(breakDurationMinutes),
             timezone: officeForm.timezone.trim() || 'UTC',
             require_ip_whitelist: officeForm.require_ip_whitelist,
             allowed_ip_ranges: allowedIpRanges.length ? allowedIpRanges : null,
@@ -910,6 +921,7 @@ export default function Recruitment() {
           office_id: officeId,
           work_start_time: officeForm.work_start_time,
           work_end_time: officeForm.work_end_time,
+          break_duration: minutesToPostgresInterval(breakDurationMinutes),
           timezone: officeForm.timezone.trim() || 'UTC',
           require_ip_whitelist: officeForm.require_ip_whitelist,
           allowed_ip_ranges: allowedIpRanges.length ? allowedIpRanges : null,
@@ -1049,6 +1061,7 @@ export default function Recruitment() {
         shift_type: template.shift_type,
         start_time: template.start_time,
         end_time: template.end_time,
+        break_duration_minutes: String(template.break_duration_minutes ?? 45),
         work_days: template.work_days?.length ? [...template.work_days] : ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
         is_active: template.is_active,
       });
@@ -1059,6 +1072,7 @@ export default function Recruitment() {
         shift_type: 'regular',
         start_time: '09:00',
         end_time: '17:00',
+        break_duration_minutes: '45',
         work_days: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
         is_active: true,
       });
@@ -1088,11 +1102,17 @@ export default function Recruitment() {
       setIsScheduleSaving(true);
       const startTime = scheduleForm.start_time.length === 5 ? scheduleForm.start_time + ':00' : scheduleForm.start_time;
       const endTime = scheduleForm.end_time.length === 5 ? scheduleForm.end_time + ':00' : scheduleForm.end_time;
+      const breakDurationMinutes = Number(scheduleForm.break_duration_minutes);
+      if (!Number.isFinite(breakDurationMinutes) || breakDurationMinutes < 0) {
+        toast({ title: 'Error', description: 'Break duration must be a valid number', variant: 'destructive' });
+        return;
+      }
       const payload = {
         schedule_name: scheduleForm.schedule_name.trim(),
         shift_type: scheduleForm.shift_type,
         start_time: startTime,
         end_time: endTime,
+        break_duration: minutesToPostgresInterval(breakDurationMinutes),
         work_days: scheduleForm.work_days,
         is_active: scheduleForm.is_active,
       };
@@ -1939,7 +1959,7 @@ export default function Recruitment() {
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
                           <div className="flex items-center gap-2">
                             <Clock className="h-4 w-4" />
                             <span>
@@ -1949,6 +1969,10 @@ export default function Recruitment() {
                           <div className="flex items-center gap-2">
                             <Users className="h-4 w-4" />
                             <span>{employeesCount} employees</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <PauseCircle className="h-4 w-4" />
+                            <span>{settings?.break_duration_minutes ?? 45} min break</span>
                           </div>
                           <div className="flex items-center gap-2">
                             <MapPin className="h-4 w-4" />
@@ -2023,6 +2047,9 @@ export default function Recruitment() {
                           <h3 className="font-semibold">{schedule.schedule_name}</h3>
                           <p className="text-sm text-muted-foreground">
                             {formatTime12h(schedule.start_time)} – {formatTime12h(schedule.end_time)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            SOP break: {schedule.break_duration_minutes} minutes
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -2192,6 +2219,15 @@ export default function Recruitment() {
                       onChange={(e) => setScheduleForm((f) => ({ ...f, end_time: e.target.value }))}
                     />
                   </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>SOP break (minutes)</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={scheduleForm.break_duration_minutes}
+                    onChange={(e) => setScheduleForm((f) => ({ ...f, break_duration_minutes: e.target.value }))}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>Shift type</Label>
@@ -2460,7 +2496,7 @@ export default function Recruitment() {
           </div>
 
           <div className="border-t pt-4 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="space-y-2">
                 <Label>Work Start</Label>
                 <Input
@@ -2475,6 +2511,15 @@ export default function Recruitment() {
                   type="time"
                   value={officeForm.work_end_time}
                   onChange={(e) => setOfficeForm({ ...officeForm, work_end_time: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>SOP Break (minutes)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={officeForm.break_duration_minutes}
+                  onChange={(e) => setOfficeForm({ ...officeForm, break_duration_minutes: e.target.value })}
                 />
               </div>
               <div className="space-y-2">

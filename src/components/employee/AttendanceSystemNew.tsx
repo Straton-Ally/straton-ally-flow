@@ -25,7 +25,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { formatTime12h } from '@/lib/utils';
-import { formatInTimeZone, formatTimeOnlyInTimeZone, UK_TIME_ZONE } from '@/lib/timezones';
+import { formatInTimeZone, formatTimeOnlyInTimeZone, getDateInTimeZone, intervalToMinutes, PAKISTAN_TIME_ZONE, UK_TIME_ZONE } from '@/lib/timezones';
 import { format } from 'date-fns';
 
 interface AttendanceRecord {
@@ -73,6 +73,7 @@ interface LocationInfo {
 
 interface OfficeSettingsRow {
   allowed_ip_ranges: string[] | null;
+  break_duration: unknown;
   require_ip_whitelist: boolean;
   geo_fencing_enabled: boolean;
   latitude: number | null;
@@ -106,6 +107,7 @@ export function AttendanceSystem() {
     latitude: number | null;
     longitude: number | null;
     radiusMeters: number | null;
+    sopBreakMinutes: number;
   } | null>(null);
   const [locationInfo, setLocationInfo] = useState<LocationInfo>({
     isAllowed: false,
@@ -153,6 +155,7 @@ export function AttendanceSystem() {
     latitude: null,
     longitude: null,
     radiusMeters: null,
+    sopBreakMinutes: 45,
   };
 
   // Update current time every second
@@ -184,7 +187,7 @@ export function AttendanceSystem() {
   useEffect(() => {
     if (!employeeId) return;
 
-    const today = getDateInTimeZone(new Date(), UK_TIME_ZONE);
+    const today = getDateInTimeZone(new Date(), PAKISTAN_TIME_ZONE);
     const refresh = () => {
       void fetchTodayAttendance(employeeId);
     };
@@ -324,18 +327,12 @@ export function AttendanceSystem() {
   const getSelectedTimeZone = () =>
     attendanceTimeZones.find((zone) => zone.id === selectedTimeZoneId) ?? attendanceTimeZones[0] ?? null;
 
-  const getDateInTimeZone = (date: Date, timeZone: string) =>
-    new Intl.DateTimeFormat('en-CA', {
-      timeZone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(date);
-
   const getTimeZoneSnapshots = (date: Date, zone: AttendanceTimeZone) => ({
     localTime: formatTimeOnlyInTimeZone(date, zone.time_zone, false),
+    pakistanTime: formatTimeOnlyInTimeZone(date, PAKISTAN_TIME_ZONE, false),
     ukTime: formatTimeOnlyInTimeZone(date, UK_TIME_ZONE, false),
     selectedDisplay: formatInTimeZone(date, zone.time_zone, use12HourTime),
+    pakistanDisplay: formatInTimeZone(date, PAKISTAN_TIME_ZONE, use12HourTime),
     ukDisplay: formatInTimeZone(date, UK_TIME_ZONE, use12HourTime),
   });
 
@@ -349,8 +346,8 @@ export function AttendanceSystem() {
       if (error) throw error;
       const zones = (data ?? []) as AttendanceTimeZone[];
       setAttendanceTimeZones(zones);
-      const ukZone = zones.find((zone) => zone.time_zone === UK_TIME_ZONE);
-      setSelectedTimeZoneId((current) => current || ukZone?.id || zones[0]?.id || '');
+      const pakistanZone = zones.find((zone) => zone.time_zone === PAKISTAN_TIME_ZONE);
+      setSelectedTimeZoneId((current) => current || pakistanZone?.id || zones[0]?.id || '');
     } catch (error) {
       console.error('Error fetching attendance time zones:', error);
       setAttendanceTimeZones([]);
@@ -507,7 +504,7 @@ export function AttendanceSystem() {
       const { data: officeData, error: officeError } = await supabase
         .from('offices')
         .select(
-          'id,name,is_active,office_settings(allowed_ip_ranges,require_ip_whitelist,geo_fencing_enabled,latitude,longitude,radius_meters)',
+          'id,name,is_active,office_settings(allowed_ip_ranges,break_duration,require_ip_whitelist,geo_fencing_enabled,latitude,longitude,radius_meters)',
         )
         .eq('id', employee.office_id)
         .maybeSingle();
@@ -546,6 +543,7 @@ export function AttendanceSystem() {
           rawSettings?.longitude === null || rawSettings?.longitude === undefined ? null : Number(rawSettings.longitude),
         radiusMeters:
           rawSettings?.radius_meters === null || rawSettings?.radius_meters === undefined ? null : Number(rawSettings.radius_meters),
+        sopBreakMinutes: intervalToMinutes(rawSettings?.break_duration, 45),
       };
 
       setOfficeSettings(normalized);
@@ -562,7 +560,7 @@ export function AttendanceSystem() {
 
   const fetchTodayAttendance = async (empId?: string) => {
     try {
-      const today = getDateInTimeZone(new Date(), UK_TIME_ZONE);
+      const today = getDateInTimeZone(new Date(), PAKISTAN_TIME_ZONE);
       const effectiveEmployeeId = empId ?? employeeId;
       if (!effectiveEmployeeId) return;
 
@@ -801,8 +799,8 @@ export function AttendanceSystem() {
     setIsLoading(true);
     try {
       const now = new Date();
-      const today = getDateInTimeZone(now, UK_TIME_ZONE);
-      const nowTime = formatTimeOnlyInTimeZone(now, selectedZone.time_zone, false);
+      const today = getDateInTimeZone(now, PAKISTAN_TIME_ZONE);
+      const nowTime = formatTimeOnlyInTimeZone(now, PAKISTAN_TIME_ZONE, false);
       const nowIso = now.toISOString();
       const snapshots = getTimeZoneSnapshots(now, selectedZone);
 
@@ -884,7 +882,7 @@ export function AttendanceSystem() {
 
       toast({
         title: "Checked In Successfully",
-        description: `${selectedZone.name}: ${snapshots.selectedDisplay} • UK: ${snapshots.ukDisplay}`,
+        description: `Pakistan: ${snapshots.pakistanDisplay} - UK: ${snapshots.ukDisplay}`,
       });
     } catch (error) {
       console.error('Error checking in:', error);
@@ -909,7 +907,7 @@ export function AttendanceSystem() {
     const attendanceZone: AttendanceTimeZone = {
       id: attendance.attendance_time_zone_id || selectedTimeZoneId || '',
       name: attendance.attendance_time_zone_name || getSelectedTimeZone()?.name || 'Selected Time',
-      time_zone: attendance.attendance_time_zone || getSelectedTimeZone()?.time_zone || UK_TIME_ZONE,
+      time_zone: attendance.attendance_time_zone || getSelectedTimeZone()?.time_zone || PAKISTAN_TIME_ZONE,
     };
     const refreshed = await refreshLocation();
     if (!refreshed?.info.isAllowed) {
@@ -925,9 +923,9 @@ export function AttendanceSystem() {
     if (earliest) {
       const now = new Date();
       const [eh, em] = earliest.split(':').map(Number);
-      const cutoff = new Date(now);
-      cutoff.setHours(eh, em ?? 0, 0, 0);
-      if (now < cutoff) {
+      const nowPakistanMinutes = timeToMinutesSinceMidnight(formatTimeOnlyInTimeZone(now, PAKISTAN_TIME_ZONE, false));
+      const cutoffMinutes = eh * 60 + (em ?? 0);
+      if (nowPakistanMinutes !== null && nowPakistanMinutes < cutoffMinutes) {
         toast({
           title: "Cannot check out yet",
           description: `You must complete your duty hours. Earliest checkout time is ${formatTime12h(earliest)}.${approvedCheckoutTime ? ' (You have an approved early leave request for this time.)' : ''}`,
@@ -940,7 +938,7 @@ export function AttendanceSystem() {
     setIsLoading(true);
     try {
       const now = new Date();
-      const nowTime = formatTimeOnlyInTimeZone(now, attendanceZone.time_zone, false);
+      const nowTime = formatTimeOnlyInTimeZone(now, PAKISTAN_TIME_ZONE, false);
       const nowIso = now.toISOString();
       const snapshots = getTimeZoneSnapshots(now, attendanceZone);
 
@@ -961,9 +959,10 @@ export function AttendanceSystem() {
         breakTotal += extraBreakMinutes;
       }
 
-      const workMinutes = Math.max(0, totalMinutesSinceCheckIn - breakTotal);
+      const billableBreakMinutes = Math.max(breakTotal, officeSettings.sopBreakMinutes);
+      const workMinutes = Math.max(0, totalMinutesSinceCheckIn - billableBreakMinutes);
       const totalHoursStr = formatMinutes(workMinutes);
-      const breakDurationStr = `${breakTotal} minutes`;
+      const breakDurationStr = `${billableBreakMinutes} minutes`;
 
       const { error } = await supabase
         .from('attendance')
@@ -978,7 +977,7 @@ export function AttendanceSystem() {
           last_verified_ip: refreshed.info.currentIP,
           last_verified_location: refreshed.geo,
           break_start_at: null,
-          break_total_minutes: breakTotal,
+          break_total_minutes: billableBreakMinutes,
           break_duration: breakDurationStr,
           total_work_minutes: workMinutes,
           notes: `Total hours: ${totalHoursStr}`,
@@ -998,7 +997,7 @@ export function AttendanceSystem() {
               check_out_local_time: snapshots.localTime,
               check_out_uk_time: snapshots.ukTime,
               break_start_at: null,
-              break_total_minutes: breakTotal,
+              break_total_minutes: billableBreakMinutes,
               break_duration: breakDurationStr,
               total_work_minutes: workMinutes,
               notes: `Total hours: ${totalHoursStr}`,
@@ -1007,7 +1006,7 @@ export function AttendanceSystem() {
       );
       toast({
         title: "Checked Out Successfully",
-        description: `${attendanceZone.name}: ${snapshots.selectedDisplay} • UK: ${snapshots.ukDisplay}. Total hours: ${totalHoursStr}`,
+        description: `Pakistan: ${snapshots.pakistanDisplay} - UK: ${snapshots.ukDisplay}. Break: ${formatMinutes(billableBreakMinutes)}. Total hours: ${totalHoursStr}`,
       });
     } catch (error) {
       console.error('Error checking out:', error);
@@ -1073,7 +1072,7 @@ export function AttendanceSystem() {
     }
     setEarlyRequestSubmitting(true);
     try {
-      const today = format(new Date(), 'yyyy-MM-dd');
+      const today = getDateInTimeZone(new Date(), PAKISTAN_TIME_ZONE);
       const timeValue = earlyRequestTime.length === 5 ? `${earlyRequestTime}:00` : earlyRequestTime;
       const { error } = await supabase.from('early_checkout_requests').insert({
         employee_id: employeeId,
@@ -1257,7 +1256,7 @@ export function AttendanceSystem() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <p className="text-sm text-muted-foreground">Your device time</p>
               <div className="text-3xl font-bold">
@@ -1265,6 +1264,15 @@ export function AttendanceSystem() {
               </div>
               <p className="text-muted-foreground">
                 {format(currentTime, 'EEEE, MMMM d, yyyy')}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Pakistan time</p>
+              <div className="text-3xl font-bold">
+                {formatTimeOnlyInTimeZone(currentTime, PAKISTAN_TIME_ZONE, use12HourTime)}
+              </div>
+              <p className="text-muted-foreground">
+                {formatInTimeZone(currentTime, PAKISTAN_TIME_ZONE, use12HourTime)}
               </p>
             </div>
             <div>
@@ -1338,6 +1346,9 @@ export function AttendanceSystem() {
               <p className="font-medium">
                 {attendance ? formatMinutes(attendance.break_total_minutes) : '—'}
               </p>
+              {officeSettings && (
+                <p className="text-xs text-muted-foreground">SOP: {formatMinutes(officeSettings.sopBreakMinutes)}</p>
+              )}
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Total Hours</p>

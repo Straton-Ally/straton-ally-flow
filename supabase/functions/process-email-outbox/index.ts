@@ -34,7 +34,8 @@ Deno.serve(async (req) => {
   const { data: rows, error } = await supabase
     .from('email_outbox')
     .select('id, recipient_email, subject, body, attempts')
-    .eq('status', 'pending')
+    .in('status', ['pending', 'failed'])
+    .lt('attempts', 5)
     .order('created_at', { ascending: true })
     .limit(25);
 
@@ -46,11 +47,16 @@ Deno.serve(async (req) => {
   let failed = 0;
 
   for (const row of rows ?? []) {
-    await supabase
+    const { data: claimedRows, error: claimError } = await supabase
       .from('email_outbox')
       .update({ status: 'processing', attempts: (row.attempts ?? 0) + 1, updated_at: new Date().toISOString() })
       .eq('id', row.id)
-      .eq('status', 'pending');
+      .in('status', ['pending', 'failed'])
+      .select('id');
+
+    if (claimError || !claimedRows?.length) {
+      continue;
+    }
 
     try {
       const response = await fetch('https://api.resend.com/emails', {
@@ -78,10 +84,11 @@ Deno.serve(async (req) => {
         .eq('id', row.id);
       sent += 1;
     } catch (err) {
+      const nextAttempts = (row.attempts ?? 0) + 1;
       await supabase
         .from('email_outbox')
         .update({
-          status: 'failed',
+          status: nextAttempts >= 5 ? 'failed' : 'pending',
           last_error: err instanceof Error ? err.message : 'Unknown email error',
           updated_at: new Date().toISOString(),
         })
