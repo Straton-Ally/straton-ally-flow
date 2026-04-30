@@ -19,6 +19,7 @@ type WorkNotificationType =
   | 'overtime_request'
   | 'overtime_approved'
   | 'overtime_declined'
+  | 'early_checkout_request'
   | 'early_checkout_response';
 
 interface WorkNotification {
@@ -56,6 +57,7 @@ const notificationTypes: WorkNotificationType[] = [
   'overtime_request',
   'overtime_approved',
   'overtime_declined',
+  'early_checkout_request',
   'early_checkout_response',
 ];
 
@@ -70,6 +72,7 @@ const notificationTypeLabels: Record<WorkNotificationType, string> = {
   overtime_request: 'Overtime request',
   overtime_approved: 'Overtime approved',
   overtime_declined: 'Overtime declined',
+  early_checkout_request: 'Early checkout request',
   early_checkout_response: 'Early checkout',
 };
 
@@ -272,6 +275,8 @@ export function Notifications() {
         return <ShieldCheck className="h-4 w-4 text-green-600" />;
       case 'overtime_declined':
         return <ShieldX className="h-4 w-4 text-red-600" />;
+      case 'early_checkout_request':
+        return <Clock className="h-4 w-4 text-amber-600" />;
       case 'early_checkout_response':
         return <LogOutIconCompat />;
     }
@@ -457,6 +462,9 @@ export function Notifications() {
       return user?.role === 'admin' ? '/admin/attendance' : '/employee/attendance';
     }
     if (notification.type === 'overtime_request') {
+      return '/admin/attendance';
+    }
+    if (notification.type === 'early_checkout_request') {
       return '/admin/attendance';
     }
     return '/teams';
@@ -673,6 +681,7 @@ export function Notifications() {
             <SelectItem value="overtime_request">Overtime requests</SelectItem>
             <SelectItem value="overtime_approved">Overtime approved</SelectItem>
             <SelectItem value="overtime_declined">Overtime declined</SelectItem>
+            <SelectItem value="early_checkout_request">Early checkout requests</SelectItem>
             <SelectItem value="early_checkout_response">Early checkout</SelectItem>
           </SelectContent>
         </Select>
