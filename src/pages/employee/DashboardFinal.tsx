@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, CheckSquare, Clock, Banknote, MessageSquare, Users, Bell } from 'lucide-react';
+import { Calendar, CheckSquare, Clock, Banknote, MessageSquare, Users, Bell, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { endOfMonth, format, startOfMonth } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
@@ -15,6 +15,7 @@ export default function EmployeeDashboard() {
   const [monthPresentDays, setMonthPresentDays] = useState<number | null>(null);
   const [salaryAmount, setSalaryAmount] = useState<number | null>(null);
   const [salaryType, setSalaryType] = useState<string | null>(null);
+  const [isSalaryVisible, setIsSalaryVisible] = useState(false);
   const [tasksTotal, setTasksTotal] = useState(0);
   const [tasksPending, setTasksPending] = useState(0);
 
@@ -155,6 +156,8 @@ export default function EmployeeDashboard() {
       : salaryType === 'hourly'
         ? `${formatCurrency(salaryAmount)}/hr`
         : formatCurrency(salaryAmount);
+  const hiddenSalaryLabel = salaryAmount === null ? '—' : '******';
+  const displayedSalaryLabel = isSalaryVisible ? salaryLabel : hiddenSalaryLabel;
 
   const quickActions = [
     {
@@ -180,7 +183,7 @@ export default function EmployeeDashboard() {
     },
     {
       title: 'Salary',
-      subtitle: salaryLabel,
+      subtitle: displayedSalaryLabel,
       icon: Banknote,
       href: '/employee/salary',
       indicatorClass: 'bg-success',
@@ -255,9 +258,19 @@ export default function EmployeeDashboard() {
 
                 <div className="rounded-xl border border-border bg-muted/30 p-3">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="space-y-0.5">
+                    <div className="min-w-0 space-y-0.5">
                       <p className="text-xs text-muted-foreground">Salary</p>
-                      <p className="text-base font-semibold">{salaryLabel}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="truncate text-base font-semibold">{displayedSalaryLabel}</p>
+                        <button
+                          type="button"
+                          onClick={() => setIsSalaryVisible((visible) => !visible)}
+                          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          aria-label={isSalaryVisible ? 'Hide salary' : 'Show salary'}
+                        >
+                          {isSalaryVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
                     </div>
                     <div className="h-9 w-9 rounded-xl bg-muted flex items-center justify-center">
                       <Banknote className="h-4 w-4 text-foreground" />
