@@ -23,10 +23,14 @@ CREATE TABLE IF NOT EXISTS work_team_members (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     team_id UUID NOT NULL REFERENCES work_teams(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-    role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'member', 'guest')) DEFAULT 'member',
+    role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'team_lead', 'project_manager', 'member', 'guest')) DEFAULT 'member',
     joined_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(team_id, user_id)
 );
+
+ALTER TABLE work_team_members DROP CONSTRAINT IF EXISTS work_team_members_role_check;
+ALTER TABLE work_team_members ADD CONSTRAINT work_team_members_role_check
+    CHECK (role IN ('owner', 'admin', 'team_lead', 'project_manager', 'member', 'guest'));
 
 ALTER TABLE work_team_members ENABLE ROW LEVEL SECURITY;
 
@@ -132,13 +136,18 @@ ALTER TABLE work_chat_rooms ENABLE ROW LEVEL SECURITY;
 CREATE TABLE IF NOT EXISTS work_chat_messages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     room_id UUID NOT NULL REFERENCES work_chat_rooms(id) ON DELETE CASCADE,
+    parent_id UUID REFERENCES work_chat_messages(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     content TEXT NOT NULL,
     mentions TEXT[] DEFAULT '{}',
+    reactions JSONB NOT NULL DEFAULT '{}'::jsonb,
     is_edited BOOLEAN DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE work_chat_messages ADD COLUMN IF NOT EXISTS parent_id UUID REFERENCES work_chat_messages(id) ON DELETE CASCADE;
+ALTER TABLE work_chat_messages ADD COLUMN IF NOT EXISTS reactions JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 ALTER TABLE work_chat_messages ENABLE ROW LEVEL SECURITY;
 
@@ -173,6 +182,22 @@ AS $$
             WHERE team_id = _team_id
               AND user_id = _user_id
               AND role IN ('owner', 'admin')
+        );
+$$;
+
+CREATE OR REPLACE FUNCTION public.work_can_manage_tasks(_team_id UUID, _user_id UUID DEFAULT auth.uid())
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT public.has_role(_user_id, 'admin')
+        OR EXISTS (
+            SELECT 1
+            FROM public.work_team_members
+            WHERE team_id = _team_id
+              AND user_id = _user_id
+              AND role IN ('owner', 'admin', 'team_lead', 'project_manager')
         );
 $$;
 
@@ -292,21 +317,20 @@ DROP POLICY IF EXISTS "work_tasks_v2_insert" ON work_tasks_v2;
 CREATE POLICY "work_tasks_v2_insert" ON work_tasks_v2 FOR INSERT
     WITH CHECK (
         public.has_role(auth.uid(), 'admin')
-        OR public.work_is_team_member(public.work_project_team_id(project_id))
-        OR assignee_id = auth.uid()
+        OR public.work_can_manage_tasks(public.work_project_team_id(project_id))
     );
 
 DROP POLICY IF EXISTS "work_tasks_v2_update" ON work_tasks_v2;
 CREATE POLICY "work_tasks_v2_update" ON work_tasks_v2 FOR UPDATE
     USING (
-        public.work_can_manage_team(public.work_project_team_id(project_id))
+        public.work_can_manage_tasks(public.work_project_team_id(project_id))
         OR assignee_id = auth.uid()
         OR reporter_id = auth.uid()
     );
 
 DROP POLICY IF EXISTS "work_tasks_v2_delete" ON work_tasks_v2;
 CREATE POLICY "work_tasks_v2_delete" ON work_tasks_v2 FOR DELETE
-    USING (public.work_can_manage_team(public.work_project_team_id(project_id)));
+    USING (public.work_can_manage_tasks(public.work_project_team_id(project_id)));
 
 -- =============================================
 -- RLS POLICIES FOR work_task_comments
@@ -436,7 +460,7 @@ BEGIN
         wt.status,
         wt.priority,
         wt.assignee_id,
-        COALESCE(p.full_name, e.full_name)::TEXT as assignee_name,
+        COALESCE(p.full_name, e.employee_id)::TEXT as assignee_name,
         wt.due_date,
         wt.tags,
         (SELECT COUNT(*) FROM work_tasks_v2 WHERE parent_id = wt.id)::BIGINT as subtask_count,

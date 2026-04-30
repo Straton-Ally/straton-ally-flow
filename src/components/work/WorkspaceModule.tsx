@@ -8,7 +8,10 @@ import {
   Loader2,
   MessageSquare,
   Plus,
+  Reply,
   Send,
+  SmilePlus,
+  X,
   Trash2,
   UserPlus,
   Users,
@@ -48,6 +51,7 @@ import {
   TASK_PRIORITIES,
   TASK_STATUSES,
   updateTask,
+  updateChatMessageReactions,
 } from '@/lib/work';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -101,6 +105,9 @@ const statusColors: Record<WorkTaskStatusV2, string> = {
   cancelled: 'bg-slate-400',
 };
 
+const taskManagerRoles: WorkTeamRole[] = ['owner', 'admin', 'team_lead', 'project_manager'];
+const quickReactions = ['👍', '✅', '👀'];
+
 export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -137,6 +144,7 @@ export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
   });
   const [newRoom, setNewRoom] = useState({ name: '', description: '', type: 'text' as WorkChatRoom['type'] });
   const [newMessage, setNewMessage] = useState('');
+  const [replyToMessage, setReplyToMessage] = useState<WorkChatMessage | null>(null);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
 
   const selectedTeam = useMemo(
@@ -153,7 +161,8 @@ export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
     [selectedTeamId, userTeams],
   );
   const canManageTeam = mode === 'admin' || selectedUserTeam?.role === 'owner' || selectedUserTeam?.role === 'admin';
-  const canCreateTask = mode === 'admin' || selectedUserTeam?.role !== 'guest';
+  const canManageTasks = mode === 'admin' || taskManagerRoles.includes(selectedUserTeam?.role as WorkTeamRole);
+  const canCreateTask = canManageTasks;
   const totalTasks = useMemo(
     () => visibleStatuses.reduce((count, status) => count + tasks[status].length, 0),
     [tasks],
@@ -488,6 +497,26 @@ export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
     }
   };
 
+  const handleTaskAssignee = async (task: ProjectTask, assigneeId: string | null) => {
+    const previous = tasks;
+    setTasks((current) =>
+      patchTask(current, task.id, {
+        assignee_id: assigneeId,
+        assignee_name: assigneeId ? memberName(members.find((member) => member.user_id === assigneeId)) : null,
+      }),
+    );
+    try {
+      await updateTask(task.id, { assignee_id: assigneeId });
+    } catch (error) {
+      setTasks(previous);
+      toast({
+        title: 'Assignee not updated',
+        description: errorMessage(error, 'Unable to assign this task.'),
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleLoadComments = async (task: ProjectTaskWithComments) => {
     if (task.comments) return;
     const comments = await fetchTaskComments(task.id);
@@ -551,17 +580,38 @@ export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
     const content = newMessage.trim();
     setNewMessage('');
     try {
-      const message = await sendChatMessage({
+      await sendChatMessage({
         room_id: selectedRoomId,
+        parent_id: replyToMessage?.id ?? null,
         user_id: user.id,
         content,
       });
-      setMessages((current) => [...current, message]);
+      setReplyToMessage(null);
+      await loadMessages(selectedRoomId);
     } catch (error) {
       setNewMessage(content);
       toast({
         title: 'Message not sent',
         description: errorMessage(error, 'Unable to send message.'),
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleToggleReaction = async (message: WorkChatMessage, reaction: string) => {
+    if (!user?.id) return;
+    const previous = messages;
+    const nextReactions = toggleReaction(message.reactions ?? {}, reaction, user.id);
+    setMessages((current) =>
+      current.map((row) => (row.id === message.id ? { ...row, reactions: nextReactions } : row)),
+    );
+    try {
+      await updateChatMessageReactions(message.id, nextReactions);
+    } catch (error) {
+      setMessages(previous);
+      toast({
+        title: 'Reaction not saved',
+        description: errorMessage(error, 'Unable to save reaction.'),
         variant: 'destructive',
       });
     }
@@ -666,7 +716,7 @@ export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
                     <span className="rounded-md border px-2 py-1">{members.length} members</span>
                     <span className="rounded-md border px-2 py-1">{projects.length} projects</span>
                     <span className="rounded-md border px-2 py-1">{totalTasks} active tasks</span>
-                    {selectedUserTeam?.role ? <span className="rounded-md border px-2 py-1">Your role: {selectedUserTeam.role}</span> : null}
+                    {selectedUserTeam?.role ? <span className="rounded-md border px-2 py-1">Your role: {roleLabel(selectedUserTeam.role)}</span> : null}
                   </div>
                 </div>
                 {canManageTeam ? (
@@ -855,8 +905,11 @@ export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
                                 key={task.id}
                                 task={task}
                                 status={status}
-                                onStatusChange={handleTaskStatus}
-                                onLoadComments={handleLoadComments}
+                              onStatusChange={handleTaskStatus}
+                              canAssignTasks={canManageTasks}
+                              members={members}
+                              onAssigneeChange={handleTaskAssignee}
+                              onLoadComments={handleLoadComments}
                                 commentDraft={commentDrafts[task.id] ?? ''}
                                 onCommentDraft={(value) => setCommentDrafts((current) => ({ ...current, [task.id]: value }))}
                                 onAddComment={handleAddComment}
@@ -889,7 +942,7 @@ export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
                           {canManageTeam ? (
                             <RoleSelect value={member.role} onChange={(role) => handleRoleChange(member, role)} />
                           ) : (
-                            <Badge variant="secondary">{member.role}</Badge>
+                            <Badge variant="secondary">{roleLabel(member.role)}</Badge>
                           )}
                           {canManageTeam && member.user_id !== user?.id ? (
                             <Button variant="ghost" size="icon" onClick={() => handleRemoveMember(member)}>
@@ -966,34 +1019,53 @@ export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
                     </CardContent>
                   </Card>
 
-                  <Card className="flex min-h-[560px] flex-col">
+                  <Card className="flex min-h-[560px] flex-col overflow-hidden">
                     <CardHeader className="border-b py-3">
-                      <CardTitle className="text-base">
-                        {rooms.find((room) => room.id === selectedRoomId)?.name || 'Team chat'}
-                      </CardTitle>
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <CardTitle className="text-base">
+                            {rooms.find((room) => room.id === selectedRoomId)?.name || 'Team chat'}
+                          </CardTitle>
+                          <p className="text-xs text-muted-foreground">
+                            {messages.length} messages
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="font-normal">
+                          Team visible
+                        </Badge>
+                      </div>
                     </CardHeader>
                     <ScrollArea className="flex-1 p-4">
                       <div className="space-y-4">
-                        {messages.map((message) => (
-                          <div key={message.id} className="flex gap-3">
-                            <Avatar className="h-8 w-8">
-                              <AvatarImage src={message.user?.avatar_url || undefined} />
-                              <AvatarFallback>{initials(message.user?.full_name || 'U')}</AvatarFallback>
-                            </Avatar>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-baseline gap-2">
-                                <span className="text-sm font-medium">{message.user?.full_name || 'Unknown'}</span>
-                                <span className="text-xs text-muted-foreground">
-                                  {formatDistanceToNow(new Date(message.created_at), { addSuffix: true })}
-                                </span>
-                              </div>
-                              <p className="whitespace-pre-wrap text-sm">{message.content}</p>
-                            </div>
+                        {messages.length === 0 ? (
+                          <div className="flex min-h-[320px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
+                            Start the team conversation.
                           </div>
-                        ))}
+                        ) : (
+                          messages.map((message) => (
+                            <ChatMessageRow
+                              key={message.id}
+                              message={message}
+                              currentUserId={user?.id}
+                              onReply={setReplyToMessage}
+                              onReact={handleToggleReaction}
+                            />
+                          ))
+                        )}
                       </div>
                     </ScrollArea>
                     <div className="border-t p-3">
+                      {replyToMessage ? (
+                        <div className="mb-2 flex items-start justify-between gap-3 rounded-md border bg-muted/40 px-3 py-2">
+                          <div className="min-w-0 text-xs">
+                            <div className="font-medium">Replying to {replyToMessage.user?.full_name || 'Unknown user'}</div>
+                            <div className="truncate text-muted-foreground">{replyToMessage.content}</div>
+                          </div>
+                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setReplyToMessage(null)}>
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      ) : null}
                       <div className="flex gap-2">
                         <Input
                           value={newMessage}
@@ -1023,11 +1095,91 @@ export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
   );
 }
 
+function ChatMessageRow({
+  message,
+  currentUserId,
+  onReply,
+  onReact,
+}: {
+  message: WorkChatMessage;
+  currentUserId?: string;
+  onReply: (message: WorkChatMessage) => void;
+  onReact: (message: WorkChatMessage, reaction: string) => void;
+}) {
+  const reactionEntries = Object.entries(message.reactions ?? {}).filter(([, userIds]) => userIds.length > 0);
+
+  return (
+    <div className="group flex gap-3 rounded-md px-2 py-2 hover:bg-muted/40">
+      <Avatar className="h-9 w-9">
+        <AvatarImage src={message.user?.avatar_url || undefined} />
+        <AvatarFallback>{initials(message.user?.full_name || 'U')}</AvatarFallback>
+      </Avatar>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-sm font-medium">{message.user?.full_name || 'Unknown user'}</span>
+          <span className="text-xs text-muted-foreground">
+            {formatDistanceToNow(new Date(message.created_at), { addSuffix: true })}
+          </span>
+          {message.is_edited ? <span className="text-xs text-muted-foreground">edited</span> : null}
+        </div>
+        {message.parent ? (
+          <button
+            type="button"
+            onClick={() => onReply(message)}
+            className="mt-2 block max-w-full rounded-md border-l-2 border-primary bg-muted/50 px-3 py-2 text-left text-xs"
+          >
+            <span className="block font-medium">{message.parent.user_full_name || 'Unknown user'}</span>
+            <span className="line-clamp-2 text-muted-foreground">{message.parent.content}</span>
+          </button>
+        ) : null}
+        <p className="mt-1 whitespace-pre-wrap text-sm leading-6">{message.content}</p>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {reactionEntries.map(([reaction, userIds]) => {
+            const reacted = currentUserId ? userIds.includes(currentUserId) : false;
+            return (
+              <button
+                key={reaction}
+                type="button"
+                onClick={() => onReact(message, reaction)}
+                className={cn(
+                  'rounded-full border px-2 py-0.5 text-xs transition-colors',
+                  reacted ? 'border-primary bg-primary/10 text-primary' : 'bg-background hover:bg-muted',
+                )}
+              >
+                {reaction} {userIds.length}
+              </button>
+            );
+          })}
+          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => onReply(message)}>
+            <Reply className="mr-1 h-3.5 w-3.5" />
+            Reply
+          </Button>
+          {quickReactions.map((reaction) => (
+            <Button
+              key={reaction}
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 opacity-70 hover:opacity-100"
+              onClick={() => onReact(message, reaction)}
+            >
+              <span className="text-sm">{reaction}</span>
+            </Button>
+          ))}
+          <SmilePlus className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TaskCard({
   task,
   status,
   commentDraft,
+  canAssignTasks,
+  members,
   onStatusChange,
+  onAssigneeChange,
   onLoadComments,
   onCommentDraft,
   onAddComment,
@@ -1035,7 +1187,10 @@ function TaskCard({
   task: ProjectTaskWithComments;
   status: WorkTaskStatusV2;
   commentDraft: string;
+  canAssignTasks: boolean;
+  members: WorkTeamMember[];
   onStatusChange: (task: ProjectTask, status: WorkTaskStatusV2) => void;
+  onAssigneeChange: (task: ProjectTask, assigneeId: string | null) => void;
   onLoadComments: (task: ProjectTaskWithComments) => void;
   onCommentDraft: (value: string) => void;
   onAddComment: (task: ProjectTask) => void;
@@ -1075,6 +1230,24 @@ function TaskCard({
             ))}
           </SelectContent>
         </Select>
+        {canAssignTasks ? (
+          <Select
+            value={task.assignee_id || 'unassigned'}
+            onValueChange={(value) => onAssigneeChange(task, value === 'unassigned' ? null : value)}
+          >
+            <SelectTrigger className="h-8">
+              <SelectValue placeholder="Assign" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="unassigned">Unassigned</SelectItem>
+              {members.map((member) => (
+                <SelectItem key={member.user_id} value={member.user_id}>
+                  {memberName(member)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
         <div className="space-y-2">
           <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => onLoadComments(task)}>
             <MessageSquare className="mr-1 h-3 w-3" />
@@ -1105,12 +1278,14 @@ function TaskCard({
 function RoleSelect({ value, onChange }: { value: WorkTeamRole; onChange: (role: WorkTeamRole) => void }) {
   return (
     <Select value={value} onValueChange={(role) => onChange(role as WorkTeamRole)}>
-      <SelectTrigger className="w-[130px]">
+      <SelectTrigger className="w-[180px]">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="owner">Owner</SelectItem>
         <SelectItem value="admin">Admin</SelectItem>
+        <SelectItem value="team_lead">Team Lead</SelectItem>
+        <SelectItem value="project_manager">Project Manager</SelectItem>
         <SelectItem value="member">Member</SelectItem>
         <SelectItem value="guest">Guest</SelectItem>
       </SelectContent>
@@ -1171,6 +1346,42 @@ function findTask(columns: Record<WorkTaskStatusV2, ProjectTaskWithComments[]>, 
     if (task) return task;
   }
   return undefined;
+}
+
+function memberName(member: WorkTeamMember | undefined) {
+  return member?.profile?.full_name || member?.profile?.email || member?.user_id || 'Unknown user';
+}
+
+function roleLabel(role: WorkTeamRole) {
+  const labels: Record<WorkTeamRole, string> = {
+    owner: 'Owner',
+    admin: 'Admin',
+    team_lead: 'Team Lead',
+    project_manager: 'Project Manager',
+    member: 'Member',
+    guest: 'Guest',
+  };
+  return labels[role];
+}
+
+function toggleReaction(reactions: Record<string, string[]>, reaction: string, userId: string) {
+  const next = Object.fromEntries(
+    Object.entries(reactions).map(([key, value]) => [key, [...value]]),
+  ) as Record<string, string[]>;
+  const users = new Set(next[reaction] ?? []);
+  if (users.has(userId)) {
+    users.delete(userId);
+  } else {
+    users.add(userId);
+  }
+
+  if (users.size === 0) {
+    delete next[reaction];
+  } else {
+    next[reaction] = Array.from(users);
+  }
+
+  return next;
 }
 
 function initials(value: string) {

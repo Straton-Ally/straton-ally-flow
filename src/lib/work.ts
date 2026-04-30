@@ -155,7 +155,7 @@ export async function fetchProjectTasks(projectId: string, statusFilter?: WorkTa
     priority: task.priority,
     assignee_id: task.assignee_id,
     assignee_name: task.assignee_id
-      ? profiles.get(task.assignee_id)?.full_name ?? employees.get(task.assignee_id)?.full_name ?? null
+      ? profiles.get(task.assignee_id)?.full_name ?? employees.get(task.assignee_id)?.employee_id ?? null
       : null,
     due_date: task.due_date,
     tags: task.tags ?? [],
@@ -264,17 +264,38 @@ export async function createChatRoom(room: Partial<WorkChatRoom>): Promise<WorkC
 }
 
 export async function fetchChatMessages(roomId: string, limit = 50): Promise<WorkChatMessage[]> {
-  const { data, error } = await workDb.from('work_chat_messages')
-    .select('*')
-    .eq('room_id', roomId)
-    .order('created_at', { ascending: false })
-    .limit(limit);
+  const { data, error } = await workDb.rpc('get_work_chat_messages', {
+    room_uuid: roomId,
+    limit_count: limit,
+  });
   if (error) throw error;
-  const messages = (data ?? []) as WorkChatMessage[];
-  const profiles = await fetchProfilesById(messages.map((message) => message.user_id));
-  return messages.map((message) => ({
-    ...message,
-    user: profiles.get(message.user_id),
+  return ((data ?? []) as Array<WorkChatMessage & {
+    user_full_name?: string | null;
+    user_avatar_url?: string | null;
+    parent_content?: string | null;
+    parent_user_full_name?: string | null;
+  }>).map((message) => ({
+    id: message.id,
+    room_id: message.room_id,
+    parent_id: message.parent_id,
+    user_id: message.user_id,
+    content: message.content,
+    mentions: message.mentions ?? [],
+    reactions: message.reactions ?? {},
+    is_edited: message.is_edited,
+    created_at: message.created_at,
+    updated_at: message.updated_at,
+    user: {
+      full_name: message.user_full_name || 'Unknown user',
+      avatar_url: message.user_avatar_url ?? null,
+    },
+    parent: message.parent_id
+      ? {
+          id: message.parent_id,
+          content: message.parent_content ?? '',
+          user_full_name: message.parent_user_full_name ?? null,
+        }
+      : null,
   }));
 }
 
@@ -290,6 +311,18 @@ export async function editChatMessage(id: string, content: string): Promise<Work
     .eq('id', id)
     .select()
     .single();
+  if (error) throw error;
+  return data as WorkChatMessage;
+}
+
+export async function updateChatMessageReactions(
+  id: string,
+  reactions: Record<string, string[]>,
+): Promise<WorkChatMessage> {
+  const { data, error } = await workDb.rpc('set_work_chat_message_reactions', {
+    message_uuid: id,
+    next_reactions: reactions,
+  });
   if (error) throw error;
   return data as WorkChatMessage;
 }
@@ -344,17 +377,17 @@ async function fetchProfilesById(userIds: string[]) {
 
 async function fetchEmployeesByUserId(userIds: string[]) {
   const ids = Array.from(new Set(userIds.filter(Boolean)));
-  const employees = new Map<string, { full_name: string }>();
+  const employees = new Map<string, { employee_id: string }>();
   if (ids.length === 0) return employees;
 
   const { data, error } = await workDb.from('employees')
-    .select('user_id,full_name')
+    .select('user_id,employee_id')
     .in('user_id', ids);
   if (error) throw error;
 
   for (const employee of data ?? []) {
     if (employee.user_id) {
-      employees.set(employee.user_id, { full_name: employee.full_name });
+      employees.set(employee.user_id, { employee_id: employee.employee_id });
     }
   }
 

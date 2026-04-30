@@ -1,4 +1,4 @@
-export type WorkTeamRole = 'owner' | 'admin' | 'member' | 'guest'
+export type WorkTeamRole = 'owner' | 'admin' | 'team_lead' | 'project_manager' | 'member' | 'guest'
 export type WorkProjectStatus = 'active' | 'on_hold' | 'archived'
 export type WorkTaskStatusV2 = 'backlog' | 'todo' | 'in_progress' | 'review' | 'done' | 'cancelled'
 export type WorkTaskPriority = 'low' | 'medium' | 'high' | 'urgent'
@@ -112,9 +112,11 @@ export interface WorkChatRoom {
 export interface WorkChatMessage {
   id: string
   room_id: string
+  parent_id: string | null
   user_id: string
   content: string
   mentions: string[]
+  reactions: Record<string, string[]>
   is_edited: boolean
   created_at: string
   updated_at: string
@@ -122,6 +124,11 @@ export interface WorkChatMessage {
     full_name: string
     avatar_url: string | null
   }
+  parent?: {
+    id: string
+    content: string
+    user_full_name: string | null
+  } | null
 }
 
 export interface UserTeam {
