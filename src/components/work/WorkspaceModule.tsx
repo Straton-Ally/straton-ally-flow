@@ -87,6 +87,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 
 type WorkspaceMode = 'admin' | 'employee';
+type WorkspaceTab = 'tasks' | 'members' | 'chat';
 
 const workspaceDb = supabase as any;
 
@@ -115,7 +116,13 @@ const statusColors: Record<WorkTaskStatusV2, string> = {
 const taskManagerRoles: WorkTeamRole[] = ['owner', 'admin', 'team_lead', 'project_manager'];
 const quickReactions = ['👍', '✅', '👀'];
 
-export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
+interface WorkspaceModuleProps {
+  mode: WorkspaceMode;
+  initialTab?: WorkspaceTab;
+  chatOnly?: boolean;
+}
+
+export function WorkspaceModule({ mode, initialTab = 'tasks', chatOnly = false }: WorkspaceModuleProps) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { toast } = useToast();
@@ -155,7 +162,7 @@ export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
   const [chatSearch, setChatSearch] = useState('');
   const [replyToMessage, setReplyToMessage] = useState<WorkChatMessage | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
-  const [activeTab, setActiveTab] = useState<'tasks' | 'members' | 'chat'>('tasks');
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>(initialTab);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
 
   const selectedTeam = useMemo(
@@ -689,9 +696,11 @@ export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Workspace</h1>
+          <h1 className="text-2xl font-bold">{chatOnly ? 'Chat' : 'Workspace'}</h1>
           <p className="text-muted-foreground">
-            Teams, roles, projects, task responses, and team chat in one place.
+            {chatOnly
+              ? 'Messages from the teams and rooms your admin has added you to.'
+              : 'Teams, roles, projects, task responses, and team chat in one place.'}
           </p>
         </div>
         {mode === 'admin' ? (
@@ -819,12 +828,14 @@ export function WorkspaceModule({ mode }: { mode: WorkspaceMode }) {
               </div>
             </div>
 
-            <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)} className="space-y-4">
-              <TabsList className={cn('grid w-full max-w-sm', mode === 'admin' ? 'grid-cols-3' : 'grid-cols-2')}>
-                <TabsTrigger value="tasks">Tasks</TabsTrigger>
-                {mode === 'admin' ? <TabsTrigger value="members">Roles</TabsTrigger> : null}
-                <TabsTrigger value="chat">Chat</TabsTrigger>
-              </TabsList>
+            <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as WorkspaceTab)} className="space-y-4">
+              {!chatOnly ? (
+                <TabsList className={cn('grid w-full max-w-sm', mode === 'admin' ? 'grid-cols-3' : 'grid-cols-2')}>
+                  <TabsTrigger value="tasks">Tasks</TabsTrigger>
+                  {mode === 'admin' ? <TabsTrigger value="members">Roles</TabsTrigger> : null}
+                  <TabsTrigger value="chat">Chat</TabsTrigger>
+                </TabsList>
+              ) : null}
 
               <TabsContent value="tasks" className="space-y-4">
                 <div className="flex flex-col gap-3 rounded-md border bg-card px-3 py-3 lg:flex-row lg:items-center lg:justify-between">

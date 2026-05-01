@@ -40,6 +40,7 @@ import TeamPage from "./pages/employee/Team";
 import SalaryPage from "./pages/employee/Salary";
 import NotificationsPage from "./pages/employee/Notifications";
 import EmployeeSettings from "./pages/employee/Settings";
+import ChatPage from "./pages/employee/Chat";
 
 const queryClient = new QueryClient();
 
@@ -112,7 +113,7 @@ const App = () => (
               <Route path="work" element={<TasksPage />} />
               <Route path="salary" element={<SalaryPage />} />
               <Route path="notifications" element={<NotificationsPage />} />
-              <Route path="chat" element={<Navigate to="/employee/work" replace />} />
+              <Route path="chat" element={<ChatPage />} />
               <Route path="settings" element={<EmployeeSettings />} />
             </Route>
 
