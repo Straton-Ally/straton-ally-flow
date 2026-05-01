@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { endOfMonth, format, startOfMonth } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { getDateInTimeZone, PAKISTAN_TIME_ZONE } from '@/lib/timezones';
 
 const workspaceDb = supabase as any;
 
@@ -57,7 +58,7 @@ export default function EmployeeDashboard() {
     const fetchTodayStatus = async () => {
       if (!user?.id) return;
 
-      const today = format(new Date(), 'yyyy-MM-dd');
+      const today = getDateInTimeZone(new Date(), PAKISTAN_TIME_ZONE);
       const monthStart = format(startOfMonth(new Date()), 'yyyy-MM-dd');
       const monthEnd = format(endOfMonth(new Date()), 'yyyy-MM-dd');
 
@@ -78,7 +79,16 @@ export default function EmployeeDashboard() {
         return;
       }
 
-      const [todayAttendanceResult, monthAttendanceResult, salaryResult] = await Promise.all([
+      const [openAttendanceResult, todayAttendanceResult, monthAttendanceResult, salaryResult] = await Promise.all([
+        supabase
+          .from('attendance')
+          .select('in_time,out_time,break_start_at,check_in_at,check_out_at,status')
+          .eq('employee_id', employee.id)
+          .not('in_time', 'is', null)
+          .is('out_time', null)
+          .order('check_in_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
         supabase
           .from('attendance')
           .select('in_time,out_time,break_start_at,check_in_at,check_out_at,status')
@@ -100,7 +110,7 @@ export default function EmployeeDashboard() {
           .maybeSingle(),
       ]);
 
-      const computed = derive(todayAttendanceResult.data);
+      const computed = derive(openAttendanceResult.data ?? todayAttendanceResult.data);
       setTodayStatus(computed.label);
       setNextAttendanceAction(computed.next);
 

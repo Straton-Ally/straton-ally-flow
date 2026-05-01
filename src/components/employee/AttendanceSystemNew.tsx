@@ -187,34 +187,25 @@ export function AttendanceSystem() {
   useEffect(() => {
     if (!employeeId) return;
 
-    const today = getDateInTimeZone(new Date(), PAKISTAN_TIME_ZONE);
     const refresh = () => {
       void fetchTodayAttendance(employeeId);
     };
 
     const attendanceChannel = supabase
-      .channel(`attendance-live:${employeeId}:${today}`)
+      .channel(`attendance-live:${employeeId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'attendance', filter: `employee_id=eq.${employeeId}` },
-        (payload) => {
-          const next = payload.new as { date?: string } | null;
-          const prev = payload.old as { date?: string } | null;
-          if (next?.date === today || prev?.date === today) refresh();
-        },
+        () => refresh(),
       )
       .subscribe();
 
     const overtimeChannel = supabase
-      .channel(`attendance-overtime-live:${employeeId}:${today}`)
+      .channel(`attendance-overtime-live:${employeeId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'attendance_overtime_requests', filter: `employee_id=eq.${employeeId}` },
-        (payload) => {
-          const next = payload.new as { date?: string } | null;
-          const prev = payload.old as { date?: string } | null;
-          if (next?.date === today || prev?.date === today) refresh();
-        },
+        () => refresh(),
       )
       .subscribe();
 
@@ -564,15 +555,30 @@ export function AttendanceSystem() {
       const effectiveEmployeeId = empId ?? employeeId;
       if (!effectiveEmployeeId) return;
 
-      // Get today's attendance
-      const { data: attendanceData } = await supabase
+      const attendanceSelect =
+        'id,date,in_time,out_time,break_duration,break_start_at,break_total_minutes,status,notes,created_at,employee_id,check_in_at,check_out_at,check_in_ip,check_out_ip,check_in_location,check_out_location,total_work_minutes,expected_check_out_at,checkout_reminder_sent_at,auto_checked_out_at,attendance_time_zone_id,attendance_time_zone_name,attendance_time_zone,check_in_local_time,check_out_local_time,check_in_uk_time,check_out_uk_time';
+
+      const { data: openAttendanceData } = await supabase
         .from('attendance')
-        .select(
-          'id,date,in_time,out_time,break_duration,break_start_at,break_total_minutes,status,notes,created_at,employee_id,check_in_at,check_out_at,check_in_ip,check_out_ip,check_in_location,check_out_location,total_work_minutes,expected_check_out_at,checkout_reminder_sent_at,auto_checked_out_at,attendance_time_zone_id,attendance_time_zone_name,attendance_time_zone,check_in_local_time,check_out_local_time,check_in_uk_time,check_out_uk_time',
-        )
+        .select(attendanceSelect)
         .eq('employee_id', effectiveEmployeeId)
-        .eq('date', today)
+        .not('in_time', 'is', null)
+        .is('out_time', null)
+        .order('check_in_at', { ascending: false })
+        .limit(1)
         .maybeSingle();
+
+      // Keep an open check-in visible across the date boundary. If none exists,
+      // fall back to today's completed/current record for the normal daily view.
+      const { data: todaysAttendanceData } = openAttendanceData
+        ? { data: null }
+        : await supabase
+            .from('attendance')
+            .select(attendanceSelect)
+            .eq('employee_id', effectiveEmployeeId)
+            .eq('date', today)
+            .maybeSingle();
+      const attendanceData = openAttendanceData ?? todaysAttendanceData;
 
       if (attendanceData) {
         const checkInLocation =
@@ -635,12 +641,15 @@ export function AttendanceSystem() {
         setOvertimeRequest(null);
       }
 
-      // Fetch all of today's early checkout requests (latest first) for badge and 3-per-day limit
+      const requestDate = attendanceData?.date ?? today;
+
+      // Fetch requests for the active attendance date (or today when not checked in)
+      // so overnight check-ins keep their related approval state.
       const { data: earlyRequestsToday } = await supabase
         .from('early_checkout_requests')
         .select('id, status, requested_checkout_time, reason')
         .eq('employee_id', effectiveEmployeeId)
-        .eq('date', today)
+        .eq('date', requestDate)
         .order('created_at', { ascending: false });
       const list = earlyRequestsToday ?? [];
       setTodayEarlyRequestCount(list.length);
@@ -920,7 +929,9 @@ export function AttendanceSystem() {
     }
 
     const earliest = getEarliestCheckoutTime();
-    if (earliest) {
+    const today = getDateInTimeZone(new Date(), PAKISTAN_TIME_ZONE);
+    const isPastAttendanceDate = Boolean(attendance.date && attendance.date < today);
+    if (earliest && !isPastAttendanceDate) {
       const now = new Date();
       const [eh, em] = earliest.split(':').map(Number);
       const nowPakistanMinutes = timeToMinutesSinceMidnight(formatTimeOnlyInTimeZone(now, PAKISTAN_TIME_ZONE, false));
