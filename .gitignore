@@ -7,9 +7,33 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
+# Dependencies
+node_modules/
+
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Build output
+dist/
 dist-ssr
+coverage/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Local tooling and generated reports
+.graphify_*
+graphify-out/
+
+# Framework/tool caches
+.vite/
+.turbo/
+.cache/
+
+# Local-only files
 *.local
 
 # Editor directories and files
