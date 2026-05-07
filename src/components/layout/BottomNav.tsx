@@ -52,8 +52,8 @@ export function BottomNav() {
   };
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border md:hidden">
-      <div className="flex items-center justify-around h-14 px-2">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-card/95 backdrop-blur-xl md:hidden">
+      <div className="flex items-center justify-around h-16 px-2">
         {mainNavItems.map((item) => {
           const isActive = location.pathname === item.href;
           return (
@@ -63,11 +63,11 @@ export function BottomNav() {
               className={cn(
                 'flex flex-col items-center justify-center flex-1 h-full gap-0.5 text-[10px] font-medium transition-colors',
                 isActive
-                  ? 'text-success'
+                  ? 'text-primary'
                   : 'text-muted-foreground'
               )}
             >
-              <item.icon className={cn('h-5 w-5', isActive && 'text-success')} />
+              <item.icon className={cn('h-5 w-5', isActive && 'text-primary')} />
               <span>{item.label}</span>
             </Link>
           );
@@ -98,7 +98,7 @@ export function BottomNav() {
                     className={cn(
                       'flex items-center gap-2 p-2.5 rounded-lg text-xs font-medium transition-colors',
                       isActive
-                        ? 'bg-success/10 text-success'
+                        ? 'bg-primary/10 text-primary'
                         : 'bg-muted text-foreground hover:bg-muted/80'
                     )}
                   >

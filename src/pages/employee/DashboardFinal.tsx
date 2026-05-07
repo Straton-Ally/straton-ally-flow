@@ -141,27 +141,27 @@ export default function EmployeeDashboard() {
 
   const attendanceIndicatorClass =
     todayStatus === 'Not Marked'
-      ? 'bg-red-500'
+      ? 'bg-destructive'
       : todayStatus === 'On Break'
-        ? 'bg-orange-500'
+        ? 'bg-warning'
         : todayStatus === 'Checked Out'
-          ? 'bg-blue-500'
-          : 'bg-success';
+          ? 'bg-info'
+          : 'bg-primary';
 
   const statusPillClass =
     todayStatus === 'Not Marked'
-      ? 'bg-red-500/10 text-red-600'
+      ? 'bg-destructive/10 text-destructive'
       : todayStatus === 'On Break'
-        ? 'bg-orange-500/10 text-orange-600'
+        ? 'bg-warning/10 text-warning'
         : todayStatus === 'Checked Out'
-          ? 'bg-blue-500/10 text-blue-600'
+          ? 'bg-info/10 text-info'
           : todayStatus === 'Leave'
-            ? 'bg-purple-500/10 text-purple-600'
+            ? 'bg-accent/30 text-accent-foreground'
             : todayStatus === 'Absent'
               ? 'bg-zinc-500/10 text-zinc-600'
               : todayStatus === 'Half Day'
-                ? 'bg-yellow-500/10 text-yellow-600'
-                : 'bg-success/10 text-success';
+                ? 'bg-warning/10 text-warning'
+                : 'bg-primary/10 text-primary';
 
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR' }).format(amount);
@@ -188,28 +188,28 @@ export default function EmployeeDashboard() {
       subtitle: `${tasksPending} pending`,
       icon: CheckSquare,
       href: '/employee/work',
-      indicatorClass: 'bg-success',
+      indicatorClass: 'bg-primary',
     },
     {
       title: 'Salary',
       subtitle: displayedSalaryLabel,
       icon: Banknote,
       href: '/employee/salary',
-      indicatorClass: 'bg-success',
+      indicatorClass: 'bg-primary',
     },
     {
       title: 'Notifications',
       subtitle: 'View updates',
       icon: Bell,
       href: '/employee/notifications',
-      indicatorClass: 'bg-success',
+      indicatorClass: 'bg-primary',
     },
     {
       title: 'Workspace',
       subtitle: 'Teams and chat',
       icon: Briefcase,
       href: '/employee/work',
-      indicatorClass: 'bg-blue-500',
+      indicatorClass: 'bg-info',
     },
   ] as const;
 
@@ -241,31 +241,31 @@ export default function EmployeeDashboard() {
           <Card className="card-elevated">
             <CardContent className="p-3 md:p-4">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="rounded-xl border border-border bg-muted/30 p-3">
+                <div className="surface-tile">
                   <div className="flex items-center justify-between gap-3">
                     <div className="space-y-0.5">
                       <p className="text-xs text-muted-foreground">Today</p>
                       <p className="text-base font-semibold">{todayStatus}</p>
                     </div>
-                    <div className="h-9 w-9 rounded-xl bg-muted flex items-center justify-center">
-                      <Clock className="h-4 w-4 text-foreground" />
+                    <div className="icon-tile">
+                      <Clock className="h-4 w-4" />
                     </div>
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-border bg-muted/30 p-3">
+                <div className="surface-tile">
                   <div className="flex items-center justify-between gap-3">
                     <div className="space-y-0.5">
                       <p className="text-xs text-muted-foreground">This Month</p>
                       <p className="text-base font-semibold">{monthPresentDays === null ? '—' : `${monthPresentDays} Days`}</p>
                     </div>
-                    <div className="h-9 w-9 rounded-xl bg-muted flex items-center justify-center">
-                      <Calendar className="h-4 w-4 text-foreground" />
+                    <div className="icon-tile">
+                      <Calendar className="h-4 w-4" />
                     </div>
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-border bg-muted/30 p-3">
+                <div className="surface-tile">
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0 space-y-0.5">
                       <p className="text-xs text-muted-foreground">Salary</p>
@@ -281,20 +281,20 @@ export default function EmployeeDashboard() {
                         </button>
                       </div>
                     </div>
-                    <div className="h-9 w-9 rounded-xl bg-muted flex items-center justify-center">
-                      <Banknote className="h-4 w-4 text-foreground" />
+                    <div className="icon-tile">
+                      <Banknote className="h-4 w-4" />
                     </div>
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-border bg-muted/30 p-3">
+                <div className="surface-tile">
                   <div className="flex items-center justify-between gap-3">
                     <div className="space-y-0.5">
                       <p className="text-xs text-muted-foreground">Tasks</p>
                       <p className="text-base font-semibold">{tasksTotal}</p>
                     </div>
-                    <div className="h-9 w-9 rounded-xl bg-muted flex items-center justify-center">
-                      <CheckSquare className="h-4 w-4 text-foreground" />
+                    <div className="icon-tile">
+                      <CheckSquare className="h-4 w-4" />
                     </div>
                   </div>
                 </div>
@@ -315,11 +315,11 @@ export default function EmployeeDashboard() {
                       key={action.href}
                       type="button"
                       onClick={() => navigate(action.href)}
-                      className="group flex flex-col items-start gap-2 rounded-xl border border-border bg-muted/30 p-3 text-left transition-colors hover:bg-muted/60"
+                      className="group flex flex-col items-start gap-2 rounded-lg border border-border bg-secondary/40 p-3 text-left transition-all hover:border-primary/40 hover:bg-primary/10"
                     >
                       <div className="flex w-full items-center justify-between gap-2">
-                        <div className="h-8 w-8 rounded-lg bg-muted flex items-center justify-center">
-                          <Icon className="h-4 w-4 text-foreground" />
+                        <div className="icon-tile h-8 w-8">
+                          <Icon className="h-4 w-4" />
                         </div>
                         <span className={`h-2 w-2 rounded-full ${action.indicatorClass}`} />
                       </div>
@@ -341,29 +341,29 @@ export default function EmployeeDashboard() {
           </CardHeader>
           <CardContent className="pt-0">
             <div className="space-y-1">
-              <div className="flex items-start gap-3 rounded-xl p-2.5 hover:bg-muted/40 transition-colors">
-                <div className="mt-1 h-2 w-2 bg-blue-500 rounded-full" />
+              <div className="flex items-start gap-3 rounded-lg p-2.5 hover:bg-primary/10 transition-colors">
+                <div className="mt-1 h-2 w-2 bg-info rounded-full" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate">Task assigned: "Design new landing page"</p>
                   <p className="text-xs text-muted-foreground">2 hours ago</p>
                 </div>
               </div>
-              <div className="flex items-start gap-3 rounded-xl p-2.5 hover:bg-muted/40 transition-colors">
-                <div className="mt-1 h-2 w-2 bg-success rounded-full" />
+              <div className="flex items-start gap-3 rounded-lg p-2.5 hover:bg-primary/10 transition-colors">
+                <div className="mt-1 h-2 w-2 bg-primary rounded-full" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate">Salary processed for January 2024</p>
                   <p className="text-xs text-muted-foreground">1 day ago</p>
                 </div>
               </div>
-              <div className="flex items-start gap-3 rounded-xl p-2.5 hover:bg-muted/40 transition-colors">
-                <div className="mt-1 h-2 w-2 bg-purple-500 rounded-full" />
+              <div className="flex items-start gap-3 rounded-lg p-2.5 hover:bg-primary/10 transition-colors">
+                <div className="mt-1 h-2 w-2 bg-accent rounded-full" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate">Team meeting scheduled for tomorrow</p>
                   <p className="text-xs text-muted-foreground">2 days ago</p>
                 </div>
               </div>
-              <div className="flex items-start gap-3 rounded-xl p-2.5 hover:bg-muted/40 transition-colors">
-                <div className="mt-1 h-2 w-2 bg-orange-500 rounded-full" />
+              <div className="flex items-start gap-3 rounded-lg p-2.5 hover:bg-primary/10 transition-colors">
+                <div className="mt-1 h-2 w-2 bg-warning rounded-full" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate">Leave request approved for Feb 5-7</p>
                   <p className="text-xs text-muted-foreground">3 days ago</p>

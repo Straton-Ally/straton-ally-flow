@@ -22,21 +22,21 @@ export function PayrollGrid({ takeHomePay, paymentPercentage }: PayrollGridProps
   const getIntensityClass = (level: number) => {
     switch (level) {
       case 1:
-        return 'bg-success/30';
+        return 'bg-primary/25';
       case 2:
-        return 'bg-success/60';
+        return 'bg-primary/55';
       case 3:
-        return 'bg-success';
+        return 'bg-primary';
       default:
         return 'bg-muted';
     }
   };
 
   return (
-    <div className="card-elevated p-3 rounded-lg h-full flex flex-col">
+    <div className="card-elevated p-4 h-full flex flex-col">
       <div className="flex items-center justify-between mb-2">
-        <h3 className="font-medium text-xs">Payroll</h3>
-        <Button variant="ghost" size="sm" className="h-5 text-[10px] text-muted-foreground gap-0.5 px-1.5">
+        <h3 className="font-semibold text-sm">Payroll</h3>
+        <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground gap-1 px-2">
           Monthly
           <ChevronDown className="h-2.5 w-2.5" />
         </Button>
@@ -60,12 +60,12 @@ export function PayrollGrid({ takeHomePay, paymentPercentage }: PayrollGridProps
       {/* Footer Stats */}
       <div className="flex items-center justify-between pt-2 mt-2 border-t border-border">
         <div>
-          <p className="text-[9px] text-muted-foreground">Take home pay</p>
-          <p className="text-xs font-semibold">{takeHomePay}</p>
+          <p className="text-xs text-muted-foreground">Take home pay</p>
+          <p className="text-sm font-semibold">{takeHomePay}</p>
         </div>
         <div className="text-right">
-          <p className="text-[9px] text-muted-foreground">Payment</p>
-          <p className="text-xs font-semibold">{paymentPercentage}%</p>
+          <p className="text-xs text-muted-foreground">Payment</p>
+          <p className="text-sm font-semibold">{paymentPercentage}%</p>
         </div>
       </div>
     </div>

@@ -103,16 +103,16 @@ export default function AdminDashboard() {
   ];
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-5">
       <DashboardHeader 
         userName={user?.fullName || 'Martin Butler'} 
         userRole="HR Executive" 
       />
 
       {/* Row 1: 4 Metrics + Payroll + Schedule */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         {/* Left: 2x2 Metrics Grid */}
-        <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <MetricCard
             title="Attendance Rate"
             value={`${attendanceRate}%`}
@@ -159,7 +159,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* Row 2: Attendance Heatmap + Project Table */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <AttendanceHeatmap rate={98} trend={2.5} />
         <ProjectStatusTable projects={projects} />
       </div>

@@ -41,19 +41,19 @@ export function FlowHRSidebar() {
   return (
     <aside
       className={cn(
-        'h-screen bg-card border-r border-border flex flex-col transition-all duration-300',
+        'h-screen bg-card/95 border-r border-border flex flex-col transition-all duration-300 shadow-card',
         collapsed ? 'w-16' : 'w-56'
       )}
     >
       {/* Logo */}
       <div className="h-14 flex items-center px-4 border-b border-border">
         <Link to="/admin/dashboard" className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-success flex items-center justify-center">
+          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shadow-teal-glow">
             <Sparkles className="h-4 w-4 text-white" />
           </div>
           {!collapsed && (
             <span className="font-display font-bold text-lg tracking-tight">
-              Flow<span className="text-success">HR</span>
+              Flow<span className="text-primary">HR</span>
             </span>
           )}
         </Link>
@@ -70,11 +70,11 @@ export function FlowHRSidebar() {
               className={cn(
                 'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
                 isActive
-                  ? 'bg-success/10 text-success'
+                  ? 'bg-primary/10 text-primary'
                   : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
               )}
             >
-              <item.icon className={cn('h-4 w-4 flex-shrink-0', isActive && 'text-success')} />
+              <item.icon className={cn('h-4 w-4 flex-shrink-0', isActive && 'text-primary')} />
               {!collapsed && <span>{item.label}</span>}
             </Link>
           );
@@ -93,7 +93,7 @@ export function FlowHRSidebar() {
               className={cn(
                 'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
                 isActive
-                  ? 'bg-success/10 text-success'
+                  ? 'bg-primary/10 text-primary'
                   : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
               )}
             >
