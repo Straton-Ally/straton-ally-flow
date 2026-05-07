@@ -4,11 +4,15 @@ import {
   Briefcase,
   Calendar,
   CheckCircle2,
+  CircleDot,
   Download,
   FileText,
   Flag,
+  Hash,
   Image,
+  KanbanSquare,
   Loader2,
+  Lock,
   MessageSquare,
   Paperclip,
   Plus,
@@ -33,6 +37,7 @@ import type {
   WorkChatAttachment,
   WorkProject,
   WorkTaskComment,
+  WorkTaskAttachment,
   WorkTaskPriority,
   WorkTaskStatusV2,
   WorkTeam,
@@ -46,6 +51,7 @@ import {
   createTaskComment,
   fetchChatMessages,
   fetchChatRooms,
+  fetchTaskAttachments,
   fetchProjectTasks,
   fetchProjects,
   fetchTaskComments,
@@ -59,6 +65,7 @@ import {
   updateTask,
   updateChatMessageReactions,
   uploadChatAttachment,
+  uploadTaskAttachment,
 } from '@/lib/work';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -100,6 +107,7 @@ type ProfileOption = {
 
 type ProjectTaskWithComments = ProjectTask & {
   comments?: WorkTaskComment[];
+  attachments?: WorkTaskAttachment[];
 };
 
 const visibleStatuses = TASK_STATUSES.filter((status) => status !== 'cancelled');
@@ -164,6 +172,7 @@ export function WorkspaceModule({ mode, initialTab = 'tasks', chatOnly = false }
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(initialTab);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [selectedTaskId, setSelectedTaskId] = useState<string>('');
 
   const selectedTeam = useMemo(
     () => teams.find((team) => team.id === selectedTeamId) ?? null,
@@ -185,6 +194,21 @@ export function WorkspaceModule({ mode, initialTab = 'tasks', chatOnly = false }
     () => visibleStatuses.reduce((count, status) => count + tasks[status].length, 0),
     [tasks],
   );
+  const allTasks = useMemo(
+    () => visibleStatuses.flatMap((status) => tasks[status]),
+    [tasks],
+  );
+  const selectedTask = useMemo(
+    () => allTasks.find((task) => task.id === selectedTaskId) ?? null,
+    [allTasks, selectedTaskId],
+  );
+  const selectedRoom = useMemo(
+    () => rooms.find((room) => room.id === selectedRoomId) ?? null,
+    [rooms, selectedRoomId],
+  );
+  const completedTasks = tasks.done.length;
+  const boardProgress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+  const activeProjectCount = projects.filter((project) => project.status === 'active').length;
   const filteredMessages = useMemo(
     () => filterChatMessages(messages, chatSearch),
     [messages, chatSearch],
@@ -210,6 +234,7 @@ export function WorkspaceModule({ mode, initialTab = 'tasks', chatOnly = false }
       setTasks(emptyTaskColumns());
       return;
     }
+    setSelectedTaskId('');
     void loadTasks(selectedProjectId);
   }, [selectedProjectId]);
 
@@ -358,6 +383,22 @@ export function WorkspaceModule({ mode, initialTab = 'tasks', chatOnly = false }
         grouped[task.status].push(task);
       });
       setTasks(grouped);
+      const rowsWithComments = rows.filter((task) => task.comment_count > 0).slice(0, 24);
+      if (rowsWithComments.length > 0) {
+        const commentsByTask = await Promise.all(
+          rowsWithComments.map(async (task) => ({
+            taskId: task.id,
+            comments: await fetchTaskComments(task.id),
+          })),
+        );
+        setTasks((current) => {
+          let next = current;
+          commentsByTask.forEach(({ taskId, comments }) => {
+            next = patchTask(next, taskId, { comments });
+          });
+          return next;
+        });
+      }
     } catch (error) {
       toast({
         title: 'Tasks not loaded',
@@ -569,10 +610,57 @@ export function WorkspaceModule({ mode, initialTab = 'tasks', chatOnly = false }
     }
   };
 
+  const handleTaskPatch = async (task: ProjectTask, updates: Partial<ProjectTaskWithComments>) => {
+    const previous = tasks;
+    setTasks((current) => patchTask(current, task.id, updates));
+    try {
+      await updateTask(task.id, updates as any);
+      toast({ title: 'Task updated' });
+    } catch (error) {
+      setTasks(previous);
+      toast({
+        title: 'Task not updated',
+        description: errorMessage(error, 'Unable to save task changes.'),
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleTaskAttachments = async (task: ProjectTaskWithComments, files: File[]) => {
+    if (files.length === 0 || !user?.id) return;
+
+    try {
+      const attachments = await Promise.all(files.map((file) => uploadTaskAttachment(task.id, user.id, file)));
+      const comment = await createTaskComment({
+        task_id: task.id,
+        user_id: user.id,
+        content: `Attached ${attachments.length === 1 ? attachments[0].name : `${attachments.length} files`}.`,
+      });
+      setTasks((current) =>
+        patchTask(current, task.id, {
+          comments: [...(findTask(current, task.id)?.comments ?? []), comment],
+          attachments: [...attachments, ...(findTask(current, task.id)?.attachments ?? [])],
+          comment_count: task.comment_count + 1,
+        }),
+      );
+      toast({ title: 'Attachment uploaded' });
+    } catch (error) {
+      toast({
+        title: 'Attachment not uploaded',
+        description: errorMessage(error, 'Unable to upload selected files.'),
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleLoadComments = async (task: ProjectTaskWithComments) => {
-    if (task.comments) return;
     const comments = await fetchTaskComments(task.id);
     setTasks((current) => patchTask(current, task.id, { comments }));
+  };
+
+  const handleLoadAttachments = async (task: ProjectTaskWithComments) => {
+    const attachments = await fetchTaskAttachments(task.id);
+    setTasks((current) => patchTask(current, task.id, { attachments }));
   };
 
   const handleAddComment = async (task: ProjectTask) => {
@@ -693,103 +781,344 @@ export function WorkspaceModule({ mode, initialTab = 'tasks', chatOnly = false }
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">{chatOnly ? 'Chat' : 'Workspace'}</h1>
-          <p className="text-muted-foreground">
-            {chatOnly
-              ? 'Messages from the teams and rooms your admin has added you to.'
-              : 'Teams, roles, projects, task responses, and team chat in one place.'}
-          </p>
-        </div>
-        {mode === 'admin' ? (
-          <Dialog open={teamDialogOpen} onOpenChange={setTeamDialogOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="mr-2 h-4 w-4" />
-                Team
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Create Team</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 py-2">
-                <Field label="Name">
-                  <Input value={newTeam.name} onChange={(event) => setNewTeam({ ...newTeam, name: event.target.value })} />
-                </Field>
-                <Field label="Description">
-                  <Textarea value={newTeam.description} onChange={(event) => setNewTeam({ ...newTeam, description: event.target.value })} />
-                </Field>
-              </div>
-              <DialogFooter>
-                <Button onClick={handleCreateTeam} disabled={busy || !newTeam.name.trim()}>
-                  {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Create
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        ) : null}
-      </div>
-
+    <div className="overflow-hidden rounded-lg border bg-card shadow-lg">
       {teams.length === 0 ? (
-        <Card>
-          <CardContent className="flex min-h-[320px] flex-col items-center justify-center gap-3 text-center">
-            <Briefcase className="h-10 w-10 text-muted-foreground" />
-            <div>
-              <h2 className="font-semibold">No workspace teams yet</h2>
-              <p className="text-sm text-muted-foreground">
-                {mode === 'admin'
-                  ? 'Create a team and add employees to start assigning work.'
-                  : 'Ask an admin to add you to a workspace team.'}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="flex min-h-[520px] flex-col items-center justify-center gap-4 bg-background p-8 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Briefcase className="h-7 w-7" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-semibold">Create your first workspace</h1>
+            <p className="mt-2 max-w-md text-sm text-muted-foreground">
+              {mode === 'admin'
+                ? 'Teams, projects, task boards, channels, comments, and files will live here.'
+                : 'Ask an admin to add you to a workspace team.'}
+            </p>
+          </div>
+          {mode === 'admin' ? (
+            <Dialog open={teamDialogOpen} onOpenChange={setTeamDialogOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-2 h-4 w-4" />
+                  New Workspace
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Create Workspace</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 py-2">
+                  <Field label="Name">
+                    <Input value={newTeam.name} onChange={(event) => setNewTeam({ ...newTeam, name: event.target.value })} />
+                  </Field>
+                  <Field label="Description">
+                    <Textarea value={newTeam.description} onChange={(event) => setNewTeam({ ...newTeam, description: event.target.value })} />
+                  </Field>
+                </div>
+                <DialogFooter>
+                  <Button onClick={handleCreateTeam} disabled={busy || !newTeam.name.trim()}>
+                    {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Create
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          ) : null}
+        </div>
       ) : (
-        <div className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)]">
-          <Card className="h-fit">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Users className="h-4 w-4 text-muted-foreground" />
-                Teams
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
+        <div className="grid min-h-[calc(100vh-9rem)] grid-cols-1 xl:grid-cols-[76px_304px_minmax(0,1fr)]">
+          <aside className="flex gap-2 border-b bg-primary/10 p-3 text-primary xl:flex-col xl:border-b-0 xl:border-r">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-semibold text-primary-foreground shadow-[var(--shadow-teal-glow)]">
+              WF
+            </div>
+            <div className="flex gap-2 overflow-x-auto xl:flex-col xl:overflow-visible">
               {teams.map((team) => (
                 <button
                   key={team.id}
-                  className={cn(
-                    'w-full rounded-md border px-3 py-3 text-left transition-colors',
-                    selectedTeamId === team.id ? 'border-primary bg-primary/10 shadow-sm' : 'hover:bg-muted',
-                  )}
+                  title={team.name}
                   onClick={() => setSelectedTeamId(team.id)}
+                  className={cn(
+                    'flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-sm font-semibold transition-all',
+                    selectedTeamId === team.id ? 'bg-card text-primary shadow-[var(--shadow-card)]' : 'bg-card/70 text-primary/70 hover:bg-card hover:text-primary',
+                  )}
                 >
-                  <div className="font-medium">{team.name}</div>
-                  {team.description ? <div className="line-clamp-2 text-xs text-muted-foreground">{team.description}</div> : null}
+                  {initials(team.name)}
                 </button>
               ))}
-            </CardContent>
-          </Card>
-
-          <div className="min-w-0 space-y-4">
-            <div className="rounded-md border bg-card px-4 py-3">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="min-w-0">
-                  <h2 className="text-xl font-semibold">{selectedTeam?.name}</h2>
-                  <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                    <span className="rounded-md border px-2 py-1">{members.length} members</span>
-                    <span className="rounded-md border px-2 py-1">{projects.length} projects</span>
-                    <span className="rounded-md border px-2 py-1">{totalTasks} active tasks</span>
-                    {selectedUserTeam?.role ? <span className="rounded-md border px-2 py-1">Your role: {roleLabel(selectedUserTeam.role)}</span> : null}
+            </div>
+            {mode === 'admin' ? (
+              <Dialog open={teamDialogOpen} onOpenChange={setTeamDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-11 w-11 shrink-0 text-primary/70 hover:bg-card hover:text-primary">
+                    <Plus className="h-5 w-5" />
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Create Workspace</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4 py-2">
+                    <Field label="Name">
+                      <Input value={newTeam.name} onChange={(event) => setNewTeam({ ...newTeam, name: event.target.value })} />
+                    </Field>
+                    <Field label="Description">
+                      <Textarea value={newTeam.description} onChange={(event) => setNewTeam({ ...newTeam, description: event.target.value })} />
+                    </Field>
                   </div>
+                  <DialogFooter>
+                    <Button onClick={handleCreateTeam} disabled={busy || !newTeam.name.trim()}>
+                      {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      Create
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            ) : null}
+          </aside>
+
+          <aside className="border-b bg-card text-foreground xl:border-b-0 xl:border-r">
+            <div className="border-b bg-secondary/30 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Workspace</p>
+                  <h2 className="truncate text-lg font-semibold">{selectedTeam?.name}</h2>
+                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{selectedTeam?.description || 'Private work hub'}</p>
                 </div>
-                {canManageTeam ? (
+                <Badge className="badge-success">Live</Badge>
+              </div>
+              <div className="mt-4 grid grid-cols-3 gap-2">
+                <WorkspaceMetric label="People" value={members.length} />
+                <WorkspaceMetric label="Projects" value={projects.length} />
+                <WorkspaceMetric label="Done" value={`${boardProgress}%`} />
+              </div>
+            </div>
+
+            <ScrollArea className="h-[calc(100vh-20rem)] xl:h-[calc(100vh-19rem)]">
+              <div className="space-y-5 p-3">
+                <section>
+                  <div className="mb-2 flex items-center justify-between px-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    <span>Projects</span>
+                    {canManageTeam ? (
+                      <Dialog open={projectDialogOpen} onOpenChange={setProjectDialogOpen}>
+                        <DialogTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:bg-primary/10 hover:text-primary">
+                            <Plus className="h-3.5 w-3.5" />
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Create Project</DialogTitle>
+                          </DialogHeader>
+                          <div className="space-y-4 py-2">
+                            <Field label="Name">
+                              <Input value={newProject.name} onChange={(event) => setNewProject({ ...newProject, name: event.target.value })} />
+                            </Field>
+                            <Field label="Description">
+                              <Textarea value={newProject.description} onChange={(event) => setNewProject({ ...newProject, description: event.target.value })} />
+                            </Field>
+                          </div>
+                          <DialogFooter>
+                            <Button onClick={handleCreateProject} disabled={busy || !newProject.name.trim()}>
+                              Create
+                            </Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
+                    ) : null}
+                  </div>
+                  <div className="space-y-1">
+                    {projects.map((project) => (
+                      <button
+                        key={project.id}
+                        onClick={() => {
+                          setSelectedProjectId(project.id);
+                          if (!chatOnly) setActiveTab('tasks');
+                        }}
+                        className={cn(
+                          'flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors',
+                          selectedProjectId === project.id && activeTab === 'tasks'
+                            ? 'bg-primary/10 text-primary shadow-sm'
+                            : 'text-foreground/80 hover:bg-secondary/60 hover:text-foreground',
+                        )}
+                      >
+                        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: project.color || '#14b8a6' }} />
+                        <span className="min-w-0 flex-1 truncate">{project.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {project.status === 'active' ? 'Active' : project.status.replace('_', ' ')}
+                        </span>
+                      </button>
+                    ))}
+                    {projects.length === 0 ? <div className="px-3 py-2 text-sm text-muted-foreground">No projects yet</div> : null}
+                  </div>
+                </section>
+
+                <section>
+                  <div className="mb-2 flex items-center justify-between px-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    <span>Channels</span>
+                    {canManageTeam ? (
+                      <Dialog open={roomDialogOpen} onOpenChange={setRoomDialogOpen}>
+                        <DialogTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:bg-primary/10 hover:text-primary">
+                            <Plus className="h-3.5 w-3.5" />
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Create Channel</DialogTitle>
+                          </DialogHeader>
+                          <div className="space-y-4 py-2">
+                            <Field label="Name">
+                              <Input value={newRoom.name} onChange={(event) => setNewRoom({ ...newRoom, name: event.target.value })} />
+                            </Field>
+                            <Field label="Description">
+                              <Textarea value={newRoom.description} onChange={(event) => setNewRoom({ ...newRoom, description: event.target.value })} />
+                            </Field>
+                            <Field label="Type">
+                              <Select value={newRoom.type} onValueChange={(type) => setNewRoom({ ...newRoom, type: type as WorkChatRoom['type'] })}>
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="text">Text</SelectItem>
+                                  <SelectItem value="announcement">Announcement</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </Field>
+                            <div className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
+                              <Lock className="mr-2 inline h-4 w-4" />
+                              Channels inherit this workspace team privacy.
+                            </div>
+                          </div>
+                          <DialogFooter>
+                            <Button onClick={handleCreateRoom} disabled={busy || !newRoom.name.trim()}>
+                              Create
+                            </Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
+                    ) : null}
+                  </div>
+                  <div className="space-y-1">
+                    {rooms.map((room) => (
+                      <button
+                        key={room.id}
+                        onClick={() => {
+                          setSelectedRoomId(room.id);
+                          setActiveTab('chat');
+                        }}
+                        className={cn(
+                          'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors',
+                          selectedRoomId === room.id && activeTab === 'chat'
+                            ? 'bg-primary/10 text-primary shadow-sm'
+                            : 'text-foreground/80 hover:bg-secondary/60 hover:text-foreground',
+                        )}
+                      >
+                        {room.type === 'announcement' ? <Lock className="h-3.5 w-3.5" /> : <Hash className="h-3.5 w-3.5" />}
+                        <span className="truncate">{room.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              </div>
+            </ScrollArea>
+          </aside>
+
+          <main className="min-w-0 bg-background">
+            <header className="flex flex-col gap-4 border-b bg-card/95 px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="min-w-0">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className="gap-1">
+                    <Lock className="h-3 w-3" />
+                    Private
+                  </Badge>
+                  {selectedUserTeam?.role ? <span className="text-xs text-muted-foreground">Your role: {roleLabel(selectedUserTeam.role)}</span> : null}
+                </div>
+                <h1 className="truncate text-2xl font-semibold">
+                  {activeTab === 'chat' || chatOnly ? selectedRoom?.name || 'Team chat' : selectedProject?.name || 'Work board'}
+                </h1>
+                <p className="mt-1 truncate text-sm text-muted-foreground">
+                  {activeTab === 'chat' || chatOnly
+                    ? selectedRoom?.description || 'Team channel with replies, reactions, and file sharing.'
+                    : selectedProject?.description || 'Plan work, update progress, discuss tasks, and keep execution visible.'}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {!chatOnly ? (
+                  <div className="flex rounded-lg border bg-muted p-1">
+                    <MainTabButton active={activeTab === 'tasks'} onClick={() => setActiveTab('tasks')} icon={<KanbanSquare className="h-4 w-4" />} label="Timeline" />
+                    {mode === 'admin' ? <MainTabButton active={activeTab === 'members'} onClick={() => setActiveTab('members')} icon={<Users className="h-4 w-4" />} label="People" /> : null}
+                    <MainTabButton active={activeTab === 'chat'} onClick={() => setActiveTab('chat')} icon={<MessageSquare className="h-4 w-4" />} label="Chat" />
+                  </div>
+                ) : null}
+
+                {activeTab === 'tasks' && canCreateTask && selectedProjectId ? (
+                  <Dialog open={taskDialogOpen} onOpenChange={setTaskDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button>
+                        <Plus className="mr-2 h-4 w-4" />
+                        Task
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Create Task</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4 py-2">
+                        <Field label="Title">
+                          <Input value={newTask.title} onChange={(event) => setNewTask({ ...newTask, title: event.target.value })} />
+                        </Field>
+                        <Field label="Description">
+                          <Textarea value={newTask.description} onChange={(event) => setNewTask({ ...newTask, description: event.target.value })} />
+                        </Field>
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <Field label="Priority">
+                            <Select value={newTask.priority} onValueChange={(priority) => setNewTask({ ...newTask, priority: priority as WorkTaskPriority })}>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {TASK_PRIORITIES.map((priority) => (
+                                  <SelectItem key={priority} value={priority}>
+                                    {PRIORITY_LABELS[priority]}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </Field>
+                          <Field label="Due Date">
+                            <Input type="date" value={newTask.due_date} onChange={(event) => setNewTask({ ...newTask, due_date: event.target.value })} />
+                          </Field>
+                        </div>
+                        <Field label="Assignee">
+                          <Select value={newTask.assignee_id || 'unassigned'} onValueChange={(assignee_id) => setNewTask({ ...newTask, assignee_id: assignee_id === 'unassigned' ? '' : assignee_id })}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="unassigned">Unassigned</SelectItem>
+                              {members.map((member) => (
+                                <SelectItem key={member.user_id} value={member.user_id}>
+                                  {member.profile?.full_name || member.profile?.email || member.user_id}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                      </div>
+                      <DialogFooter>
+                        <Button onClick={handleCreateTask} disabled={busy || !newTask.title.trim()}>
+                          Create
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                ) : null}
+
+                {activeTab === 'members' && canManageTeam ? (
                   <Dialog open={memberDialogOpen} onOpenChange={setMemberDialogOpen}>
                     <DialogTrigger asChild>
-                      <Button variant="outline">
+                      <Button>
                         <UserPlus className="mr-2 h-4 w-4" />
                         Member
                       </Button>
@@ -826,394 +1155,760 @@ export function WorkspaceModule({ mode, initialTab = 'tasks', chatOnly = false }
                   </Dialog>
                 ) : null}
               </div>
-            </div>
+            </header>
 
-            <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as WorkspaceTab)} className="space-y-4">
-              {!chatOnly ? (
-                <TabsList className={cn('grid w-full max-w-sm', mode === 'admin' ? 'grid-cols-3' : 'grid-cols-2')}>
-                  <TabsTrigger value="tasks">Tasks</TabsTrigger>
-                  {mode === 'admin' ? <TabsTrigger value="members">Roles</TabsTrigger> : null}
-                  <TabsTrigger value="chat">Chat</TabsTrigger>
-                </TabsList>
-              ) : null}
-
-              <TabsContent value="tasks" className="space-y-4">
-                <div className="flex flex-col gap-3 rounded-md border bg-card px-3 py-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
-                    <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
-                      <SelectTrigger className="w-full sm:w-[260px]">
-                        <SelectValue placeholder="Select project" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {projects.map((project) => (
-                          <SelectItem key={project.id} value={project.id}>
-                            {project.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {canManageTeam ? (
-                      <Dialog open={projectDialogOpen} onOpenChange={setProjectDialogOpen}>
-                        <DialogTrigger asChild>
-                          <Button variant="outline" size="sm">
-                            <Plus className="mr-1 h-4 w-4" />
-                            Project
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                          <DialogHeader>
-                            <DialogTitle>Create Project</DialogTitle>
-                          </DialogHeader>
-                          <div className="space-y-4 py-2">
-                            <Field label="Name">
-                              <Input value={newProject.name} onChange={(event) => setNewProject({ ...newProject, name: event.target.value })} />
-                            </Field>
-                            <Field label="Description">
-                              <Textarea value={newProject.description} onChange={(event) => setNewProject({ ...newProject, description: event.target.value })} />
-                            </Field>
-                          </div>
-                          <DialogFooter>
-                            <Button onClick={handleCreateProject} disabled={busy || !newProject.name.trim()}>
-                              Create
-                            </Button>
-                          </DialogFooter>
-                        </DialogContent>
-                      </Dialog>
-                    ) : null}
-                    {selectedProject?.description ? (
-                      <p className="line-clamp-1 text-sm text-muted-foreground">{selectedProject.description}</p>
-                    ) : null}
-                  </div>
-
-                  {canCreateTask && selectedProjectId ? (
-                    <Dialog open={taskDialogOpen} onOpenChange={setTaskDialogOpen}>
-                      <DialogTrigger asChild>
-                        <Button size="sm">
-                          <Plus className="mr-1 h-4 w-4" />
-                          Task
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Create Task</DialogTitle>
-                        </DialogHeader>
-                        <div className="space-y-4 py-2">
-                          <Field label="Title">
-                            <Input value={newTask.title} onChange={(event) => setNewTask({ ...newTask, title: event.target.value })} />
-                          </Field>
-                          <Field label="Description">
-                            <Textarea value={newTask.description} onChange={(event) => setNewTask({ ...newTask, description: event.target.value })} />
-                          </Field>
-                          <div className="grid gap-4 sm:grid-cols-2">
-                            <Field label="Priority">
-                              <Select value={newTask.priority} onValueChange={(priority) => setNewTask({ ...newTask, priority: priority as WorkTaskPriority })}>
-                                <SelectTrigger>
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {TASK_PRIORITIES.map((priority) => (
-                                    <SelectItem key={priority} value={priority}>
-                                      {PRIORITY_LABELS[priority]}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </Field>
-                            <Field label="Due Date">
-                              <Input type="date" value={newTask.due_date} onChange={(event) => setNewTask({ ...newTask, due_date: event.target.value })} />
-                            </Field>
-                          </div>
-                          <Field label="Assignee">
-                            <Select value={newTask.assignee_id || 'unassigned'} onValueChange={(assignee_id) => setNewTask({ ...newTask, assignee_id: assignee_id === 'unassigned' ? '' : assignee_id })}>
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="unassigned">Unassigned</SelectItem>
-                                {members.map((member) => (
-                                  <SelectItem key={member.user_id} value={member.user_id}>
-                                    {member.profile?.full_name || member.profile?.email || member.user_id}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </Field>
-                        </div>
-                        <DialogFooter>
-                          <Button onClick={handleCreateTask} disabled={busy || !newTask.title.trim()}>
-                            Create
-                          </Button>
-                        </DialogFooter>
-                      </DialogContent>
-                    </Dialog>
-                  ) : null}
-                </div>
-
+            {activeTab === 'tasks' && !chatOnly ? (
+              <section className="p-4 lg:p-6">
                 {!selectedProject ? (
                   <Card className="border-dashed">
-                    <CardContent className="flex min-h-[300px] items-center justify-center p-8 text-center text-muted-foreground">
+                    <CardContent className="flex min-h-[520px] items-center justify-center p-8 text-center text-muted-foreground">
                       Create or select a project to start assigning tasks.
                     </CardContent>
                   </Card>
                 ) : (
-                  <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-5">
-                    {visibleStatuses.map((status) => (
-                      <div key={status} className="flex min-h-[420px] min-w-0 flex-col rounded-md border bg-muted/20">
-                        <div className={cn('flex items-center justify-between rounded-t-md px-3 py-2 text-sm font-medium text-white', statusColors[status])}>
-                          <span>{STATUS_LABELS[status]}</span>
-                          <span className="rounded bg-white/20 px-1.5 text-xs">{tasks[status].length}</span>
-                        </div>
-                        <div className="flex flex-1 flex-col gap-2 p-2">
-                          {tasks[status].length === 0 ? (
-                            <div className="flex flex-1 items-center justify-center rounded-md border border-dashed bg-background/40 px-3 py-8 text-center text-xs text-muted-foreground">
-                              No tasks
-                            </div>
-                          ) : (
-                            tasks[status].map((task) => (
-                              <TaskCard
-                                key={task.id}
-                                task={task}
-                                status={status}
-                              onStatusChange={handleTaskStatus}
-                              canAssignTasks={canManageTasks}
-                              members={members}
-                              onAssigneeChange={handleTaskAssignee}
-                              onLoadComments={handleLoadComments}
-                                commentDraft={commentDrafts[task.id] ?? ''}
-                                onCommentDraft={(value) => setCommentDrafts((current) => ({ ...current, [task.id]: value }))}
-                                onAddComment={handleAddComment}
-                              />
-                            ))
-                          )}
+                  <ProjectTimeline
+                    tasks={allTasks}
+                    members={members}
+                    selectedTaskId={selectedTaskId}
+                    onSelectTask={(task) => {
+                      setSelectedTaskId(task.id);
+                      void handleLoadComments(task);
+                    }}
+                  />
+                )}
+              </section>
+            ) : null}
+
+            {mode === 'admin' && activeTab === 'members' && !chatOnly ? (
+              <section className="grid gap-4 p-4 xl:grid-cols-3">
+                {members.map((member) => (
+                  <Card key={member.id} className="overflow-hidden">
+                    <CardContent className="space-y-4 p-4">
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-12 w-12">
+                          <AvatarImage src={member.profile?.avatar_url || undefined} />
+                          <AvatarFallback>{initials(member.profile?.full_name || member.profile?.email || 'U')}</AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0">
+                          <div className="truncate font-semibold">{member.profile?.full_name || 'Unknown user'}</div>
+                          <div className="truncate text-sm text-muted-foreground">{member.profile?.email}</div>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </TabsContent>
+                      <div className="flex items-center justify-between gap-2">
+                        {canManageTeam ? <RoleSelect value={member.role} onChange={(role) => handleRoleChange(member, role)} /> : <Badge variant="secondary">{roleLabel(member.role)}</Badge>}
+                        {canManageTeam && member.user_id !== user?.id ? (
+                          <Button variant="ghost" size="icon" onClick={() => handleRemoveMember(member)}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        ) : null}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </section>
+            ) : null}
 
-              {mode === 'admin' ? (
-                <TabsContent value="members">
+            {(activeTab === 'chat' || chatOnly) ? (
+              <section className="grid h-[calc(100vh-16rem)] min-h-[680px] gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+                <Card className="flex min-h-0 flex-col overflow-hidden">
+                  <CardHeader className="border-b py-3">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <CardTitle className="flex items-center gap-2 text-base">
+                          {selectedRoom?.type === 'announcement' ? <Lock className="h-4 w-4 text-muted-foreground" /> : <Hash className="h-4 w-4 text-muted-foreground" />}
+                          {selectedRoom?.name || 'Team chat'}
+                        </CardTitle>
+                        <p className="text-xs text-muted-foreground">
+                          {filteredMessages.length === messages.length ? `${messages.length} messages` : `${filteredMessages.length} of ${messages.length} messages`}
+                        </p>
+                      </div>
+                      <div className="relative">
+                        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input value={chatSearch} onChange={(event) => setChatSearch(event.target.value)} placeholder="Search messages" className="h-9 w-full pl-8 sm:w-[260px]" />
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <ScrollArea className="min-h-0 flex-1 p-4">
+                    <div className="space-y-3">
+                      {messages.length === 0 ? (
+                        <div className="flex min-h-[420px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
+                          Start the team conversation.
+                        </div>
+                      ) : filteredMessages.length === 0 ? (
+                        <div className="flex min-h-[420px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
+                          No messages match your search.
+                        </div>
+                      ) : (
+                        filteredMessages.map((message) => (
+                          <ChatMessageRow key={message.id} message={message} currentUserId={user?.id} onReply={setReplyToMessage} onReact={handleToggleReaction} />
+                        ))
+                      )}
+                    </div>
+                  </ScrollArea>
+                  <div className="border-t bg-card p-3">
+                    {replyToMessage ? (
+                      <div className="mb-2 flex items-start justify-between gap-3 rounded-md border bg-muted/40 px-3 py-2">
+                        <div className="min-w-0 text-xs">
+                          <div className="font-medium">Replying to {replyToMessage.user?.full_name || 'Unknown user'}</div>
+                          <div className="truncate text-muted-foreground">{replyToMessage.content}</div>
+                        </div>
+                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setReplyToMessage(null)}>
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ) : null}
+                    {pendingFiles.length > 0 ? (
+                      <div className="mb-2 flex flex-wrap gap-2">
+                        {pendingFiles.map((file, index) => (
+                          <div key={`${file.name}-${index}`} className="flex items-center gap-2 rounded-md border px-2 py-1 text-xs">
+                            {file.type.startsWith('image/') ? <Image className="h-3.5 w-3.5" /> : <FileText className="h-3.5 w-3.5" />}
+                            <span className="max-w-[180px] truncate">{file.name}</span>
+                            <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => setPendingFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))}>
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="flex gap-2 rounded-lg border bg-background p-2">
+                      <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(event) => handleAttachFiles(event.target.files)} />
+                      <Button type="button" variant="ghost" size="icon" disabled={!selectedRoomId} onClick={() => fileInputRef.current?.click()}>
+                        <Paperclip className="h-4 w-4" />
+                      </Button>
+                      <Input
+                        value={newMessage}
+                        onChange={(event) => setNewMessage(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' && !event.shiftKey) {
+                            event.preventDefault();
+                            void handleSendMessage();
+                          }
+                        }}
+                        placeholder={selectedRoomId ? `Message #${selectedRoom?.name || 'channel'}` : 'Select a channel'}
+                        disabled={!selectedRoomId}
+                        className="border-0 bg-transparent shadow-none focus-visible:ring-0"
+                      />
+                      <Button onClick={handleSendMessage} disabled={!selectedRoomId || (!newMessage.trim() && pendingFiles.length === 0)}>
+                        <Send className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+
+                <aside className="space-y-4">
                   <Card>
-                    <CardContent className="divide-y p-0">
-                      {members.map((member) => (
-                        <div key={member.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-                          <div className="flex items-center gap-3">
-                            <Avatar>
-                              <AvatarImage src={member.profile?.avatar_url || undefined} />
-                              <AvatarFallback>{initials(member.profile?.full_name || member.profile?.email || 'U')}</AvatarFallback>
-                            </Avatar>
-                            <div>
-                              <div className="font-medium">{member.profile?.full_name || 'Unknown user'}</div>
-                              <div className="text-sm text-muted-foreground">{member.profile?.email}</div>
+                    <CardHeader className="border-b">
+                      <CardTitle className="text-base">Channel details</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3 p-4">
+                      <DetailTile label="Visibility" value="Workspace members" />
+                      <DetailTile label="Type" value={selectedRoom?.type === 'announcement' ? 'Announcement' : 'Text channel'} />
+                      <DetailTile label="Messages" value={messages.length} />
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="border-b">
+                      <CardTitle className="text-base">People here</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3 p-4">
+                      {members.slice(0, 8).map((member) => (
+                        <div key={member.id} className="flex items-center gap-3">
+                          <Avatar className="h-8 w-8">
+                            <AvatarImage src={member.profile?.avatar_url || undefined} />
+                            <AvatarFallback>{initials(member.profile?.full_name || member.profile?.email || 'U')}</AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium">{member.profile?.full_name || 'Unknown user'}</div>
+                            <div className="text-xs text-muted-foreground">{roleLabel(member.role)}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                </aside>
+              </section>
+            ) : null}
+          </main>
+        </div>
+      )}
+
+      <TaskDetailDialog
+        task={selectedTask}
+        open={Boolean(selectedTask)}
+        members={members}
+        canAssignTasks={canManageTasks}
+        commentDraft={selectedTask ? commentDrafts[selectedTask.id] ?? '' : ''}
+        onOpenChange={(open) => {
+          if (!open) setSelectedTaskId('');
+        }}
+        onStatusChange={handleTaskStatus}
+        onAssigneeChange={handleTaskAssignee}
+        onUpdateTask={handleTaskPatch}
+        onAttachFiles={handleTaskAttachments}
+        onLoadComments={handleLoadComments}
+        onLoadAttachments={handleLoadAttachments}
+        onCommentDraft={(value) => {
+          if (!selectedTask) return;
+          setCommentDrafts((current) => ({ ...current, [selectedTask.id]: value }));
+        }}
+        onAddComment={handleAddComment}
+      />
+    </div>
+  );
+}
+
+function WorkspaceMetric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-md border bg-card px-3 py-2 shadow-sm">
+      <div className="text-lg font-semibold leading-none">{value}</div>
+      <div className="mt-1 truncate text-xs text-muted-foreground">{label}</div>
+    </div>
+  );
+}
+
+function MainTabButton({
+  active,
+  icon,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'flex h-9 items-center gap-2 rounded-md px-3 text-sm font-medium transition-colors',
+        active ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+      )}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function DetailTile({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="rounded-md border bg-background px-3 py-2">
+      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="mt-1 truncate text-sm font-medium">{value}</div>
+    </div>
+  );
+}
+
+function ProjectTimeline({
+  tasks,
+  members,
+  selectedTaskId,
+  onSelectTask,
+}: {
+  tasks: ProjectTaskWithComments[];
+  members: WorkTeamMember[];
+  selectedTaskId: string;
+  onSelectTask: (task: ProjectTaskWithComments) => void;
+}) {
+  const statusGroups = visibleStatuses
+    .map((status) => ({
+      status,
+      tasks: tasks.filter((task) => task.status === status),
+    }))
+    .filter((group) => group.tasks.length > 0);
+  const totalComments = tasks.reduce((count, task) => count + task.comment_count, 0);
+  const doneCount = tasks.filter((task) => task.status === 'done').length;
+
+  if (tasks.length === 0) {
+    return (
+      <div className="flex min-h-[520px] items-center justify-center rounded-lg border border-dashed bg-card p-8 text-center">
+        <div>
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <CircleDot className="h-6 w-6" />
+          </div>
+          <h2 className="mt-4 text-lg font-semibold">No project activity yet</h2>
+          <p className="mt-2 max-w-md text-sm text-muted-foreground">
+            Add tasks or updates and this area will become a live execution timeline.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="rounded-lg border bg-card shadow-[var(--shadow-card)]">
+        <div className="border-b bg-secondary/30 p-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold">Project timeline</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                A hierarchy of tasks, progress updates, and employee comments.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline">{tasks.length} tasks</Badge>
+              <Badge variant="outline">{totalComments} updates</Badge>
+              <Badge className="badge-success">{doneCount} complete</Badge>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-5">
+          <div className="relative space-y-8 pl-12 before:absolute before:left-[18px] before:top-2 before:h-[calc(100%-1rem)] before:w-px before:bg-border">
+            {statusGroups.map((group) => (
+              <section key={group.status} className="relative">
+                <div className="absolute -left-[42px] top-0.5 flex h-9 w-9 items-center justify-center rounded-full border bg-card shadow-sm">
+                  <CircleDot className={cn('h-4 w-4', statusTextColor(group.status))} />
+                </div>
+                <div className="mb-3 flex min-h-10 flex-wrap items-center gap-2">
+                  <h3 className="text-base font-semibold">{STATUS_LABELS[group.status]}</h3>
+                  <Badge variant="secondary">{group.tasks.length}</Badge>
+                </div>
+
+                <div className="space-y-3">
+                  {group.tasks.map((task) => {
+                    const comments = task.comments ?? [];
+                    return (
+                      <button
+                        key={task.id}
+                        type="button"
+                        onClick={() => onSelectTask(task)}
+                        className={cn(
+                          'block w-full rounded-lg border bg-background text-left shadow-sm transition-all hover:border-primary/40 hover:shadow-[var(--shadow-card)]',
+                          selectedTaskId === task.id ? 'border-primary ring-2 ring-primary/15' : null,
+                        )}
+                      >
+                        <div className="border-l-4 p-4" style={{ borderLeftColor: PRIORITY_COLORS[task.priority] }}>
+                          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h4 className="font-semibold leading-6">{task.title}</h4>
+                                <Badge variant="outline">{PRIORITY_LABELS[task.priority]}</Badge>
+                              </div>
+                              {task.description ? <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{task.description}</p> : null}
+                            </div>
+                            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                              {task.due_date ? (
+                                <span className="rounded-md border bg-card px-2 py-1">
+                                  <Calendar className="mr-1 inline h-3 w-3" />
+                                  {task.due_date}
+                                </span>
+                              ) : null}
+                              <span className="rounded-md border bg-card px-2 py-1">{task.assignee_name || 'Unassigned'}</span>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            {canManageTeam ? (
-                              <RoleSelect value={member.role} onChange={(role) => handleRoleChange(member, role)} />
-                            ) : (
-                              <Badge variant="secondary">{roleLabel(member.role)}</Badge>
-                            )}
-                            {canManageTeam && member.user_id !== user?.id ? (
-                              <Button variant="ghost" size="icon" onClick={() => handleRemoveMember(member)}>
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
+
+                          <div className="mt-4 space-y-2 border-l border-dashed pl-4">
+                            {comments.slice(-3).map((comment) => (
+                              <div key={comment.id} className="flex gap-3 rounded-md bg-card p-3">
+                                <Avatar className="h-8 w-8">
+                                  <AvatarImage src={comment.user?.avatar_url || undefined} />
+                                  <AvatarFallback>{initials(comment.user?.full_name || 'U')}</AvatarFallback>
+                                </Avatar>
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                                    <span className="font-medium text-foreground">{comment.user?.full_name || 'Unknown'}</span>
+                                    <span className="text-muted-foreground">{formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}</span>
+                                  </div>
+                                  <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{comment.content}</p>
+                                </div>
+                              </div>
+                            ))}
+                            {comments.length === 0 ? (
+                              <div className="rounded-md border border-dashed bg-card/60 px-3 py-2 text-sm text-muted-foreground">
+                                No employee update loaded yet. Open this task to add progress.
+                              </div>
                             ) : null}
                           </div>
                         </div>
-                      ))}
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-              ) : null}
-
-              <TabsContent value="chat">
-                <div className="grid min-h-[560px] gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-base">Rooms</CardTitle>
-                        {canManageTeam ? (
-                          <Dialog open={roomDialogOpen} onOpenChange={setRoomDialogOpen}>
-                            <DialogTrigger asChild>
-                              <Button variant="ghost" size="icon">
-                                <Plus className="h-4 w-4" />
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                              <DialogHeader>
-                                <DialogTitle>Create Chat Room</DialogTitle>
-                              </DialogHeader>
-                              <div className="space-y-4 py-2">
-                                <Field label="Name">
-                                  <Input value={newRoom.name} onChange={(event) => setNewRoom({ ...newRoom, name: event.target.value })} />
-                                </Field>
-                                <Field label="Description">
-                                  <Textarea value={newRoom.description} onChange={(event) => setNewRoom({ ...newRoom, description: event.target.value })} />
-                                </Field>
-                                <Field label="Type">
-                                  <Select value={newRoom.type} onValueChange={(type) => setNewRoom({ ...newRoom, type: type as WorkChatRoom['type'] })}>
-                                    <SelectTrigger>
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="text">Text</SelectItem>
-                                      <SelectItem value="announcement">Announcement</SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                </Field>
-                              </div>
-                              <DialogFooter>
-                                <Button onClick={handleCreateRoom} disabled={busy || !newRoom.name.trim()}>
-                                  Create
-                                </Button>
-                              </DialogFooter>
-                            </DialogContent>
-                          </Dialog>
-                        ) : null}
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-1">
-                      {rooms.map((room) => (
-                        <button
-                          key={room.id}
-                          onClick={() => setSelectedRoomId(room.id)}
-                          className={cn(
-                            'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm',
-                            selectedRoomId === room.id ? 'bg-primary/10 text-primary' : 'hover:bg-muted',
-                          )}
-                        >
-                          <MessageSquare className="h-4 w-4" />
-                          <span className="truncate">{room.name}</span>
-                        </button>
-                      ))}
-                    </CardContent>
-                  </Card>
-
-                  <Card className="flex h-[640px] min-h-[560px] flex-col overflow-hidden">
-                    <CardHeader className="border-b py-3">
-                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                        <div>
-                          <CardTitle className="text-base">
-                            {rooms.find((room) => room.id === selectedRoomId)?.name || 'Team chat'}
-                          </CardTitle>
-                          <p className="text-xs text-muted-foreground">
-                            {filteredMessages.length === messages.length
-                              ? `${messages.length} messages`
-                              : `${filteredMessages.length} of ${messages.length} messages`}
-                          </p>
-                        </div>
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                          <div className="relative">
-                            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                            <Input
-                              value={chatSearch}
-                              onChange={(event) => setChatSearch(event.target.value)}
-                              placeholder="Search messages"
-                              className="h-9 w-full pl-8 sm:w-[220px]"
-                            />
-                          </div>
-                          <Badge variant="outline" className="w-fit font-normal">
-                            Team visible
-                          </Badge>
-                        </div>
-                      </div>
-                    </CardHeader>
-                    <ScrollArea className="min-h-0 flex-1 p-4">
-                      <div className="space-y-4">
-                        {messages.length === 0 ? (
-                          <div className="flex min-h-[320px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
-                            Start the team conversation.
-                          </div>
-                        ) : filteredMessages.length === 0 ? (
-                          <div className="flex min-h-[320px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
-                            No messages match your search.
-                          </div>
-                        ) : (
-                          filteredMessages.map((message) => (
-                            <ChatMessageRow
-                              key={message.id}
-                              message={message}
-                              currentUserId={user?.id}
-                              onReply={setReplyToMessage}
-                              onReact={handleToggleReaction}
-                            />
-                          ))
-                        )}
-                      </div>
-                    </ScrollArea>
-                    <div className="border-t p-3">
-                      {replyToMessage ? (
-                        <div className="mb-2 flex items-start justify-between gap-3 rounded-md border bg-muted/40 px-3 py-2">
-                          <div className="min-w-0 text-xs">
-                            <div className="font-medium">Replying to {replyToMessage.user?.full_name || 'Unknown user'}</div>
-                            <div className="truncate text-muted-foreground">{replyToMessage.content}</div>
-                          </div>
-                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setReplyToMessage(null)}>
-                            <X className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      ) : null}
-                      {pendingFiles.length > 0 ? (
-                        <div className="mb-2 flex flex-wrap gap-2">
-                          {pendingFiles.map((file, index) => (
-                            <div key={`${file.name}-${index}`} className="flex items-center gap-2 rounded-md border px-2 py-1 text-xs">
-                              {file.type.startsWith('image/') ? <Image className="h-3.5 w-3.5" /> : <FileText className="h-3.5 w-3.5" />}
-                              <span className="max-w-[180px] truncate">{file.name}</span>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-5 w-5"
-                                onClick={() => setPendingFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))}
-                              >
-                                <X className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-                      <div className="flex gap-2">
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          multiple
-                          className="hidden"
-                          onChange={(event) => handleAttachFiles(event.target.files)}
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon"
-                          disabled={!selectedRoomId}
-                          onClick={() => fileInputRef.current?.click()}
-                        >
-                          <Paperclip className="h-4 w-4" />
-                        </Button>
-                        <Input
-                          value={newMessage}
-                          onChange={(event) => setNewMessage(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter' && !event.shiftKey) {
-                              event.preventDefault();
-                              void handleSendMessage();
-                            }
-                          }}
-                          placeholder={selectedRoomId ? 'Message the team' : 'Select a room'}
-                          disabled={!selectedRoomId}
-                        />
-                        <Button onClick={handleSendMessage} disabled={!selectedRoomId || (!newMessage.trim() && pendingFiles.length === 0)}>
-                          <Send className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </Card>
+                      </button>
+                    );
+                  })}
                 </div>
-              </TabsContent>
-            </Tabs>
+              </section>
+            ))}
           </div>
         </div>
-      )}
+      </div>
+
+      <aside className="space-y-4">
+        <Card>
+          <CardHeader className="border-b">
+            <CardTitle className="text-base">Timeline pulse</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 p-4">
+            <DetailTile label="Tasks" value={tasks.length} />
+            <DetailTile label="Employee updates" value={totalComments} />
+            <DetailTile label="Completion" value={`${Math.round((doneCount / tasks.length) * 100)}%`} />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="border-b">
+            <CardTitle className="text-base">Contributors</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 p-4">
+            {members.slice(0, 6).map((member) => (
+              <div key={member.id} className="flex items-center gap-3">
+                <Avatar className="h-8 w-8">
+                  <AvatarImage src={member.profile?.avatar_url || undefined} />
+                  <AvatarFallback>{initials(member.profile?.full_name || member.profile?.email || 'U')}</AvatarFallback>
+                </Avatar>
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">{memberName(member)}</div>
+                  <div className="text-xs text-muted-foreground">{roleLabel(member.role)}</div>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </aside>
     </div>
+  );
+}
+
+function TaskDetailDialog({
+  task,
+  open,
+  members,
+  canAssignTasks,
+  commentDraft,
+  onOpenChange,
+  onStatusChange,
+  onAssigneeChange,
+  onUpdateTask,
+  onAttachFiles,
+  onLoadComments,
+  onLoadAttachments,
+  onCommentDraft,
+  onAddComment,
+}: {
+  task: ProjectTaskWithComments | null;
+  open: boolean;
+  members: WorkTeamMember[];
+  canAssignTasks: boolean;
+  commentDraft: string;
+  onOpenChange: (open: boolean) => void;
+  onStatusChange: (task: ProjectTask, status: WorkTaskStatusV2) => void;
+  onAssigneeChange: (task: ProjectTask, assigneeId: string | null) => void;
+  onUpdateTask: (task: ProjectTask, updates: Partial<ProjectTaskWithComments>) => void;
+  onAttachFiles: (task: ProjectTaskWithComments, files: File[]) => void;
+  onLoadComments: (task: ProjectTaskWithComments) => void;
+  onLoadAttachments: (task: ProjectTaskWithComments) => void;
+  onCommentDraft: (value: string) => void;
+  onAddComment: (task: ProjectTask) => void;
+}) {
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const [actionPanel, setActionPanel] = useState<'assignee' | 'labels' | 'dates' | 'attachment' | null>(null);
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [descriptionDraft, setDescriptionDraft] = useState('');
+  const [labelDraft, setLabelDraft] = useState('');
+  const [dateDraft, setDateDraft] = useState('');
+
+  useEffect(() => {
+    setActionPanel(null);
+    setEditingDescription(false);
+    setDescriptionDraft(task?.description ?? '');
+    setLabelDraft((task?.tags ?? []).join(', '));
+    setDateDraft(task?.due_date ?? '');
+    if (task) {
+      onLoadAttachments(task);
+    }
+  }, [task?.id, task?.description, task?.due_date, task?.tags]);
+
+  if (!task) return null;
+
+  const saveDescription = () => {
+    onUpdateTask(task, { description: descriptionDraft.trim() || null });
+    setEditingDescription(false);
+  };
+
+  const saveLabels = () => {
+    const tags = labelDraft
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    onUpdateTask(task, { tags });
+    setActionPanel(null);
+  };
+
+  const saveDate = () => {
+    onUpdateTask(task, { due_date: dateDraft || null });
+    setActionPanel(null);
+  };
+
+  const handleAttachmentInput = (files: FileList | null) => {
+    const selectedFiles = files ? Array.from(files) : [];
+    if (selectedFiles.length > 0) {
+      onAttachFiles(task, selectedFiles);
+      setActionPanel(null);
+    }
+    if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[88vh] max-w-5xl overflow-hidden p-0">
+        <div className="h-28 border-b bg-gradient-to-r from-slate-100 via-secondary/70 to-primary/10" />
+        <div className="grid min-h-0 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <ScrollArea className="max-h-[calc(88vh-7rem)]">
+            <div className="space-y-6 p-6">
+              <DialogHeader className="space-y-3 text-left">
+                <div className="flex items-start gap-3">
+                  <CircleDot className={cn('mt-1 h-5 w-5', statusTextColor(task.status))} />
+                  <div className="min-w-0">
+                    <DialogTitle className="text-2xl leading-tight">{task.title}</DialogTitle>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      In <span className="font-medium">{STATUS_LABELS[task.status]}</span>
+                    </p>
+                  </div>
+                </div>
+              </DialogHeader>
+
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" disabled={!canAssignTasks} onClick={() => setActionPanel(actionPanel === 'assignee' ? null : 'assignee')}>
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Add
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setActionPanel(actionPanel === 'labels' ? null : 'labels')}>
+                  <Flag className="mr-2 h-4 w-4" />
+                  Labels
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setActionPanel(actionPanel === 'dates' ? null : 'dates')}>
+                  <Calendar className="mr-2 h-4 w-4" />
+                  Dates
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setActionPanel(actionPanel === 'attachment' ? null : 'attachment')}>
+                  <Paperclip className="mr-2 h-4 w-4" />
+                  Attachment
+                </Button>
+              </div>
+
+              {task.tags.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {task.tags.map((tag) => (
+                    <Badge key={tag} variant="secondary">{tag}</Badge>
+                  ))}
+                </div>
+              ) : null}
+
+              {actionPanel ? (
+                <div className="rounded-lg border bg-card p-4 shadow-sm">
+                  {actionPanel === 'assignee' ? (
+                    <div className="space-y-3">
+                      <Label>Assignee</Label>
+                      <Select value={task.assignee_id || 'unassigned'} onValueChange={(value) => onAssigneeChange(task, value === 'unassigned' ? null : value)}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Assign" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="unassigned">Unassigned</SelectItem>
+                          {members.map((member) => (
+                            <SelectItem key={member.user_id} value={member.user_id}>
+                              {memberName(member)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : null}
+
+                  {actionPanel === 'labels' ? (
+                    <div className="space-y-3">
+                      <Label>Labels</Label>
+                      <Input value={labelDraft} onChange={(event) => setLabelDraft(event.target.value)} placeholder="Design, Review, Client" />
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={() => setActionPanel(null)}>Cancel</Button>
+                        <Button size="sm" onClick={saveLabels}>Save labels</Button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {actionPanel === 'dates' ? (
+                    <div className="space-y-3">
+                      <Label>Due date</Label>
+                      <Input type="date" value={dateDraft} onChange={(event) => setDateDraft(event.target.value)} />
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={() => setActionPanel(null)}>Cancel</Button>
+                        <Button size="sm" onClick={saveDate}>Save date</Button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {actionPanel === 'attachment' ? (
+                    <div className="space-y-3">
+                      <Label>Attachment</Label>
+                      <input
+                        ref={attachmentInputRef}
+                        type="file"
+                        multiple
+                        className="hidden"
+                        onChange={(event) => handleAttachmentInput(event.target.files)}
+                      />
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button variant="outline" onClick={() => attachmentInputRef.current?.click()}>
+                          <Paperclip className="mr-2 h-4 w-4" />
+                          Choose files
+                        </Button>
+                        <span className="text-sm text-muted-foreground">Selected files are recorded in task activity.</span>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <section className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="flex items-center gap-2 font-semibold">
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                    Description
+                  </h3>
+                  {editingDescription ? (
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setEditingDescription(false)}>Cancel</Button>
+                      <Button size="sm" onClick={saveDescription}>Save</Button>
+                    </div>
+                  ) : (
+                    <Button variant="outline" size="sm" onClick={() => setEditingDescription(true)}>Edit</Button>
+                  )}
+                </div>
+                {editingDescription ? (
+                  <Textarea value={descriptionDraft} onChange={(event) => setDescriptionDraft(event.target.value)} className="min-h-[120px]" />
+                ) : (
+                  <div className="rounded-lg border bg-muted/30 p-4 text-sm leading-6 text-muted-foreground">
+                    {task.description || 'No description yet.'}
+                  </div>
+                )}
+              </section>
+
+              <section className="space-y-3">
+                <h3 className="flex items-center gap-2 font-semibold">
+                  <Paperclip className="h-4 w-4 text-muted-foreground" />
+                  Attachments
+                </h3>
+                <div className="space-y-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                  {(task.attachments ?? []).map((attachment) => (
+                    <div key={attachment.id} className="flex items-center gap-3 rounded-md bg-background p-3">
+                      {attachment.type.startsWith('image/') ? <Image className="h-4 w-4 text-muted-foreground" /> : <FileText className="h-4 w-4 text-muted-foreground" />}
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-medium text-foreground">{attachment.name}</div>
+                        <div className="text-xs">{formatFileSize(attachment.size)}</div>
+                      </div>
+                      <Button variant="outline" size="sm" disabled={!attachment.download_url} asChild={Boolean(attachment.download_url)}>
+                        {attachment.download_url ? (
+                          <a href={attachment.download_url} download={attachment.name}>
+                            <Download className="mr-2 h-4 w-4" />
+                            Download
+                          </a>
+                        ) : (
+                          <span>
+                            <Download className="mr-2 h-4 w-4" />
+                            Download
+                          </span>
+                        )}
+                      </Button>
+                    </div>
+                  ))}
+                  {(task.attachments ?? []).length === 0 ? <div>No attachments yet.</div> : null}
+                </div>
+              </section>
+            </div>
+          </ScrollArea>
+
+          <aside className="border-t bg-muted/20 lg:border-l lg:border-t-0">
+            <ScrollArea className="max-h-[calc(88vh-7rem)]">
+              <div className="space-y-5 p-5">
+                <div className="grid grid-cols-2 gap-2">
+                  <DetailTile label="Status" value={STATUS_LABELS[task.status]} />
+                  <DetailTile label="Priority" value={PRIORITY_LABELS[task.priority]} />
+                  <DetailTile label="Assignee" value={task.assignee_name || 'Unassigned'} />
+                  <DetailTile label="Due" value={task.due_date || 'No date'} />
+                </div>
+
+                <div className="space-y-3 rounded-lg border bg-card p-3">
+                  <h3 className="font-semibold">Update task</h3>
+                  <Select value={task.status} onValueChange={(value) => onStatusChange(task, value as WorkTaskStatusV2)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {visibleStatuses.map((item) => (
+                        <SelectItem key={item} value={item}>
+                          {STATUS_LABELS[item]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {canAssignTasks ? (
+                    <Select value={task.assignee_id || 'unassigned'} onValueChange={(value) => onAssigneeChange(task, value === 'unassigned' ? null : value)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Assign" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="unassigned">Unassigned</SelectItem>
+                        {members.map((member) => (
+                          <SelectItem key={member.user_id} value={member.user_id}>
+                            {memberName(member)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : null}
+                </div>
+
+                <div className="space-y-3 rounded-lg border bg-card p-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="flex items-center gap-2 font-semibold">
+                      <MessageSquare className="h-4 w-4 text-muted-foreground" />
+                      Comments and activity
+                    </h3>
+                    <Button variant="ghost" size="sm" onClick={() => onLoadComments(task)}>
+                      Load
+                    </Button>
+                  </div>
+                  <Textarea
+                    value={commentDraft}
+                    onChange={(event) => onCommentDraft(event.target.value)}
+                    placeholder="Write a comment..."
+                    className="min-h-[78px] resize-none"
+                  />
+                  <div className="flex justify-end">
+                    <Button size="sm" onClick={() => onAddComment(task)} disabled={!commentDraft.trim()}>
+                      <Send className="mr-2 h-4 w-4" />
+                      Comment
+                    </Button>
+                  </div>
+                  <div className="space-y-3">
+                    {(task.comments ?? []).map((comment) => (
+                      <div key={comment.id} className="flex gap-3">
+                        <Avatar className="h-8 w-8">
+                          <AvatarImage src={comment.user?.avatar_url || undefined} />
+                          <AvatarFallback>{initials(comment.user?.full_name || 'U')}</AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2 text-sm">
+                            <span className="font-medium">{comment.user?.full_name || 'Unknown'}</span>
+                            <span className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}</span>
+                          </div>
+                          <div className="mt-1 rounded-lg bg-background p-3 text-sm leading-6">{comment.content}</div>
+                        </div>
+                      </div>
+                    ))}
+                    {(task.comments ?? []).length === 0 ? (
+                      <div className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
+                        No activity loaded yet.
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            </ScrollArea>
+          </aside>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1231,7 +1926,7 @@ function ChatMessageRow({
   const reactionEntries = Object.entries(message.reactions ?? {}).filter(([, userIds]) => userIds.length > 0);
 
   return (
-    <div className="group flex gap-3 rounded-md px-2 py-2 hover:bg-muted/40">
+    <div className="group flex gap-3 rounded-lg px-3 py-3 hover:bg-muted/40">
       <Avatar className="h-9 w-9">
         <AvatarImage src={message.user?.avatar_url || undefined} />
         <AvatarFallback>{initials(message.user?.full_name || 'U')}</AvatarFallback>
@@ -1254,7 +1949,7 @@ function ChatMessageRow({
             <span className="line-clamp-2 text-muted-foreground">{message.parent.content}</span>
           </button>
         ) : null}
-        <p className="mt-1 whitespace-pre-wrap text-sm leading-6">{message.content}</p>
+        <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-foreground">{message.content}</p>
         {message.attachments?.length ? (
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {message.attachments.map((attachment) => (
@@ -1344,7 +2039,9 @@ function TaskCard({
   status,
   commentDraft,
   canAssignTasks,
+  selected,
   members,
+  onSelect,
   onStatusChange,
   onAssigneeChange,
   onLoadComments,
@@ -1355,7 +2052,9 @@ function TaskCard({
   status: WorkTaskStatusV2;
   commentDraft: string;
   canAssignTasks: boolean;
+  selected?: boolean;
   members: WorkTeamMember[];
+  onSelect?: () => void;
   onStatusChange: (task: ProjectTask, status: WorkTaskStatusV2) => void;
   onAssigneeChange: (task: ProjectTask, assigneeId: string | null) => void;
   onLoadComments: (task: ProjectTaskWithComments) => void;
@@ -1363,40 +2062,47 @@ function TaskCard({
   onAddComment: (task: ProjectTask) => void;
 }) {
   return (
-    <Card className="rounded-md">
+    <Card
+      className={cn(
+        'rounded-lg border bg-card shadow-sm transition-all hover:shadow-md',
+        selected ? 'border-primary ring-2 ring-primary/15' : null,
+      )}
+      onClick={onSelect}
+    >
       <CardContent className="space-y-3 p-3">
         <div className="space-y-1">
           <div className="flex items-start justify-between gap-2">
-            <h3 className="min-w-0 text-sm font-medium">{task.title}</h3>
+            <h3 className="min-w-0 text-sm font-semibold leading-5">{task.title}</h3>
             {status === 'done' ? <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-600" /> : null}
           </div>
           {task.description ? <p className="line-clamp-2 text-xs text-muted-foreground">{task.description}</p> : null}
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="flex items-center gap-1" style={{ color: PRIORITY_COLORS[task.priority] }}>
+          <span className="flex items-center gap-1 rounded-md border px-2 py-1" style={{ color: PRIORITY_COLORS[task.priority] }}>
             <Flag className="h-3 w-3" />
             {PRIORITY_LABELS[task.priority]}
           </span>
           {task.due_date ? (
-            <span className="flex items-center gap-1 text-muted-foreground">
+            <span className="flex items-center gap-1 rounded-md border px-2 py-1 text-muted-foreground">
               <Calendar className="h-3 w-3" />
               {task.due_date}
             </span>
           ) : null}
           {task.assignee_name ? <Badge variant="outline">{task.assignee_name}</Badge> : null}
         </div>
-        <Select value={status} onValueChange={(value) => onStatusChange(task, value as WorkTaskStatusV2)}>
-          <SelectTrigger className="h-8">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {visibleStatuses.map((item) => (
-              <SelectItem key={item} value={item}>
-                {STATUS_LABELS[item]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="grid gap-2">
+          <Select value={status} onValueChange={(value) => onStatusChange(task, value as WorkTaskStatusV2)}>
+            <SelectTrigger className="h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {visibleStatuses.map((item) => (
+                <SelectItem key={item} value={item}>
+                  {STATUS_LABELS[item]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         {canAssignTasks ? (
           <Select
             value={task.assignee_id || 'unassigned'}
@@ -1415,10 +2121,11 @@ function TaskCard({
             </SelectContent>
           </Select>
         ) : null}
+        </div>
         <div className="space-y-2">
-          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => onLoadComments(task)}>
+          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" onClick={() => onLoadComments(task)}>
             <MessageSquare className="mr-1 h-3 w-3" />
-            {task.comments ? 'Hide/refresh responses' : `Responses (${task.comment_count})`}
+            {task.comments ? 'Refresh comments' : `Comments (${task.comment_count})`}
           </Button>
           {task.comments ? (
             <div className="space-y-2">
@@ -1458,6 +2165,18 @@ function RoleSelect({ value, onChange }: { value: WorkTeamRole; onChange: (role:
       </SelectContent>
     </Select>
   );
+}
+
+function statusTextColor(status: WorkTaskStatusV2) {
+  const colors: Record<WorkTaskStatusV2, string> = {
+    backlog: 'text-slate-500',
+    todo: 'text-blue-500',
+    in_progress: 'text-amber-500',
+    review: 'text-violet-500',
+    done: 'text-emerald-500',
+    cancelled: 'text-slate-400',
+  };
+  return colors[status];
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

@@ -6,6 +6,7 @@ import type {
   WorkProjectMember,
   WorkTaskV2,
   WorkTaskComment,
+  WorkTaskAttachment,
   WorkChatRoom,
   WorkChatMessage,
   WorkChatAttachment,
@@ -26,6 +27,7 @@ export type {
   WorkProject,
   WorkProjectMember,
   WorkTaskComment,
+  WorkTaskAttachment,
   WorkTaskPriority,
   WorkTaskStatusV2,
   WorkTaskV2,
@@ -249,6 +251,44 @@ export async function deleteTaskComment(id: string): Promise<void> {
   if (error) throw error;
 }
 
+export async function fetchTaskAttachments(taskId: string): Promise<WorkTaskAttachment[]> {
+  const { data, error } = await workDb
+    .from('work_task_attachments')
+    .select('*')
+    .eq('task_id', taskId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return hydrateTaskAttachments((data ?? []) as WorkTaskAttachment[]);
+}
+
+export async function uploadTaskAttachment(taskId: string, userId: string, file: File): Promise<WorkTaskAttachment> {
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const path = `${taskId}/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
+  const type = file.type || 'application/octet-stream';
+
+  const { error: uploadError } = await workDb.storage
+    .from('work-task-attachments')
+    .upload(path, file, { contentType: type });
+  if (uploadError) throw uploadError;
+
+  const { data, error } = await workDb
+    .from('work_task_attachments')
+    .insert({
+      task_id: taskId,
+      user_id: userId,
+      name: file.name,
+      type,
+      size: file.size,
+      path,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+
+  const [attachment] = await hydrateTaskAttachments([data as WorkTaskAttachment]);
+  return attachment;
+}
+
 export async function fetchChatRooms(teamId: string): Promise<WorkChatRoom[]> {
   const { data, error } = await workDb.from('work_chat_rooms')
     .select('*')
@@ -424,6 +464,27 @@ async function hydrateChatAttachments(attachments: WorkChatAttachment[]) {
         .createSignedUrl(attachment.path, 60 * 60),
       workDb.storage
         .from('work-chat-attachments')
+        .createSignedUrl(attachment.path, 60 * 60, { download: attachment.name }),
+    ]);
+    return {
+      ...attachment,
+      url: data?.signedUrl ?? null,
+      download_url: downloadData?.signedUrl ?? data?.signedUrl ?? null,
+    };
+  }));
+}
+
+async function hydrateTaskAttachments(attachments: WorkTaskAttachment[]) {
+  if (!Array.isArray(attachments) || attachments.length === 0) return [];
+
+  return Promise.all(attachments.map(async (attachment) => {
+    if (!attachment.path) return attachment;
+    const [{ data }, { data: downloadData }] = await Promise.all([
+      workDb.storage
+        .from('work-task-attachments')
+        .createSignedUrl(attachment.path, 60 * 60),
+      workDb.storage
+        .from('work-task-attachments')
         .createSignedUrl(attachment.path, 60 * 60, { download: attachment.name }),
     ]);
     return {

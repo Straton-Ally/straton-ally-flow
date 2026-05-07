@@ -118,6 +118,19 @@ export interface WorkChatAttachment {
   download_url?: string | null
 }
 
+export interface WorkTaskAttachment {
+  id: string
+  task_id: string
+  user_id: string
+  name: string
+  type: string
+  size: number
+  path: string
+  created_at: string
+  url?: string | null
+  download_url?: string | null
+}
+
 export interface WorkChatMessage {
   id: string
   room_id: string
