@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, CheckSquare, Clock, Banknote, Briefcase, Bell, Eye, EyeOff } from 'lucide-react';
+import { Calendar, CheckSquare, Clock, Banknote, Briefcase, Bell, Eye, EyeOff, Calculator } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { endOfMonth, format, startOfMonth } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { getDateInTimeZone, PAKISTAN_TIME_ZONE } from '@/lib/timezones';
+import { canAccessFlowMath } from '@/lib/flowmath';
 
+// Existing workspace v2 tables are ahead of generated Supabase types.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const workspaceDb = supabase as any;
 
 export default function EmployeeDashboard() {
@@ -20,6 +23,7 @@ export default function EmployeeDashboard() {
   const [isSalaryVisible, setIsSalaryVisible] = useState(false);
   const [tasksTotal, setTasksTotal] = useState(0);
   const [tasksPending, setTasksPending] = useState(0);
+  const [hasFlowMathAccess, setHasFlowMathAccess] = useState(false);
 
   const currentHour = new Date().getHours();
   const greeting =
@@ -139,6 +143,17 @@ export default function EmployeeDashboard() {
     fetchTodayStatus();
   }, [user?.id]);
 
+  useEffect(() => {
+    let mounted = true;
+    if (!user?.id) return;
+    canAccessFlowMath(user.id)
+      .then((allowed) => mounted && setHasFlowMathAccess(allowed))
+      .catch(() => mounted && setHasFlowMathAccess(false));
+    return () => {
+      mounted = false;
+    };
+  }, [user?.id]);
+
   const attendanceIndicatorClass =
     todayStatus === 'Not Marked'
       ? 'bg-destructive'
@@ -211,6 +226,17 @@ export default function EmployeeDashboard() {
       href: '/employee/work',
       indicatorClass: 'bg-info',
     },
+    ...(hasFlowMathAccess
+      ? [
+          {
+            title: 'FlowMath',
+            subtitle: 'Accounts ERP',
+            icon: Calculator,
+            href: '/flowmath/dashboard',
+            indicatorClass: 'bg-accent',
+          },
+        ]
+      : []),
   ] as const;
 
   return (

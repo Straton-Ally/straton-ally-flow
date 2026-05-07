@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useNavigate } from 'react-router-dom';
 import {
   Briefcase,

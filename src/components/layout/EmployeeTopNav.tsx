@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { Search, Bell, Briefcase, LogOut, MessageSquare } from 'lucide-react';
+import { Search, Bell, Briefcase, LogOut, MessageSquare, Calculator } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -16,6 +16,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { signOut } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
+import { canAccessFlowMath } from '@/lib/flowmath';
 
 const navItems = [
   { label: 'Dashboard', href: '/employee/dashboard' },
@@ -30,6 +31,7 @@ export function EmployeeTopNav() {
   const { user } = useAuth();
   const firstName = user?.fullName?.split(' ')[0] || 'User';
   const [unreadWorkNotifications, setUnreadWorkNotifications] = useState(0);
+  const [hasFlowMathAccess, setHasFlowMathAccess] = useState(false);
 
   const handleLogout = async () => {
     await signOut();
@@ -61,6 +63,23 @@ export function EmployeeTopNav() {
 
     return () => {
       realtime.unsubscribe();
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    let mounted = true;
+    if (!user?.id) return;
+
+    canAccessFlowMath(user.id)
+      .then((allowed) => {
+        if (mounted) setHasFlowMathAccess(allowed);
+      })
+      .catch(() => {
+        if (mounted) setHasFlowMathAccess(false);
+      });
+
+    return () => {
+      mounted = false;
     };
   }, [user?.id]);
 
@@ -115,6 +134,13 @@ export function EmployeeTopNav() {
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate('/employee/work')} title="Workspace">
             <Briefcase className="h-4 w-4" />
           </Button>
+
+          {hasFlowMathAccess ? (
+            <Button variant="outline" size="sm" className="hidden h-8 sm:inline-flex" onClick={() => navigate('/flowmath/dashboard')} title="FlowMath Accounts">
+              <Calculator className="h-4 w-4" />
+              FlowMath
+            </Button>
+          ) : null}
 
           <Button
             variant="ghost"

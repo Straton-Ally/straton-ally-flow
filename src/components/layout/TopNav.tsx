@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { Search, Bell, MessageSquare, LogOut } from 'lucide-react';
+import { Search, Bell, MessageSquare, LogOut, Calculator } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -116,6 +116,11 @@ export function TopNav() {
 
           <Button variant="ghost" size="icon" className="h-8 w-8">
             <MessageSquare className="h-4 w-4" />
+          </Button>
+
+          <Button variant="outline" size="sm" className="hidden h-8 lg:inline-flex" onClick={() => navigate('/flowmath/dashboard')}>
+            <Calculator className="h-4 w-4" />
+            FlowMath
           </Button>
 
           <Button

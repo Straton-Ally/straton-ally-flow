@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { FlowMathRoute } from "@/components/auth/FlowMathRoute";
 import { PWAInstallPrompt } from "@/components/ui/pwa-install-prompt";
 
 // Pages
@@ -41,6 +42,21 @@ import SalaryPage from "./pages/employee/Salary";
 import NotificationsPage from "./pages/employee/Notifications";
 import EmployeeSettings from "./pages/employee/Settings";
 import ChatPage from "./pages/employee/Chat";
+import { FlowMathLayout } from "./components/layout/FlowMathLayout";
+import {
+  FlowMathAccountsPage,
+  FlowMathBillsPage,
+  FlowMathCustomersPage,
+  FlowMathDashboardPage,
+  FlowMathExpensesPage,
+  FlowMathInvoicesPage,
+  FlowMathJournalPage,
+  FlowMathLedgerPage,
+  FlowMathPayrollPage,
+  FlowMathReportsPage,
+  FlowMathSettingsPage,
+  FlowMathVendorsPage,
+} from "./pages/flowmath/FlowMathPages";
 
 const queryClient = new QueryClient();
 
@@ -115,6 +131,30 @@ const App = () => (
               <Route path="notifications" element={<NotificationsPage />} />
               <Route path="chat" element={<ChatPage />} />
               <Route path="settings" element={<EmployeeSettings />} />
+            </Route>
+
+            {/* FlowMath accounts routes */}
+            <Route
+              path="/flowmath"
+              element={
+                <FlowMathRoute>
+                  <FlowMathLayout />
+                </FlowMathRoute>
+              }
+            >
+              <Route index element={<Navigate to="dashboard" replace />} />
+              <Route path="dashboard" element={<FlowMathDashboardPage />} />
+              <Route path="accounts" element={<FlowMathAccountsPage />} />
+              <Route path="journal" element={<FlowMathJournalPage />} />
+              <Route path="ledger" element={<FlowMathLedgerPage />} />
+              <Route path="payroll" element={<FlowMathPayrollPage />} />
+              <Route path="vendors" element={<FlowMathVendorsPage />} />
+              <Route path="customers" element={<FlowMathCustomersPage />} />
+              <Route path="expenses" element={<FlowMathExpensesPage />} />
+              <Route path="invoices" element={<FlowMathInvoicesPage />} />
+              <Route path="bills" element={<FlowMathBillsPage />} />
+              <Route path="reports" element={<FlowMathReportsPage />} />
+              <Route path="settings" element={<FlowMathSettingsPage />} />
             </Route>
 
             <Route path="/teams" element={<Navigate to="/employee/work" replace />} />

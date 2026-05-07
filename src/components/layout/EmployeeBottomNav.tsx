@@ -7,6 +7,7 @@ import {
   Menu,
   LogOut,
   Briefcase,
+  Calculator,
 } from 'lucide-react';
 import {
   Sheet,
@@ -19,6 +20,9 @@ import { useState } from 'react';
 import { signOut } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import { useAuth } from '@/hooks/useAuth';
+import { canAccessFlowMath } from '@/lib/flowmath';
+import { useEffect } from 'react';
 
 const mainNavItems = [
   { icon: LayoutDashboard, label: 'Home', href: '/employee/dashboard' },
@@ -40,13 +44,26 @@ const moreNavItems = [
 export function EmployeeBottomNav() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
+  const [hasFlowMathAccess, setHasFlowMathAccess] = useState(false);
 
   const handleLogout = async () => {
     await signOut();
     setOpen(false);
     navigate('/login', { replace: true });
   };
+
+  useEffect(() => {
+    let mounted = true;
+    if (!user?.id) return;
+    canAccessFlowMath(user.id)
+      .then((allowed) => mounted && setHasFlowMathAccess(allowed))
+      .catch(() => mounted && setHasFlowMathAccess(false));
+    return () => {
+      mounted = false;
+    };
+  }, [user?.id]);
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-card/95 backdrop-blur-xl md:hidden">
@@ -103,6 +120,16 @@ export function EmployeeBottomNav() {
                   </Link>
                 );
               })}
+              {hasFlowMathAccess ? (
+                <Link
+                  to="/flowmath/dashboard"
+                  onClick={() => setOpen(false)}
+                  className="flex items-center gap-2 p-2.5 rounded-lg text-xs font-medium transition-colors bg-muted text-foreground hover:bg-muted/80"
+                >
+                  <Calculator className="h-4 w-4" />
+                  <span>FlowMath</span>
+                </Link>
+              ) : null}
             </div>
             <div className="border-t border-border pt-3 pb-2">
               <Button 

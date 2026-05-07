@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import type {
   WorkTeam,
   WorkTeamMember,
