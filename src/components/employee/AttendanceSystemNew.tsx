@@ -713,9 +713,16 @@ export function AttendanceSystem() {
         return { info: computed, geo: null as { lat: number; lng: number; accuracy?: number } | null };
       }
 
-      const response = await fetch('https://api.ipify.org?format=json');
-      const data = (await response.json()) as { ip?: string };
-      const ip = data?.ip ?? null;
+      let ip: string | null = null;
+      if (requireIp) {
+        try {
+          const response = await fetch('https://api.ipify.org?format=json');
+          const data = (await response.json()) as { ip?: string };
+          ip = data?.ip ?? null;
+        } catch (error) {
+          console.error('Error checking IP address:', error);
+        }
+      }
 
       const ipAllowed = !requireIp || (!!ip && isIpAllowed(ip, settings.allowedIpRanges));
 
@@ -741,15 +748,15 @@ export function AttendanceSystem() {
         }
       }
 
-      const isAllowed = ipAllowed && geoAllowed;
+      const isAllowed = requireIp && requireGeo ? ipAllowed || geoAllowed : ipAllowed && geoAllowed;
       const reason = isAllowed
         ? null
-        : !ipAllowed && requireIp
-          ? 'Your network is not allowed for this office.'
-          : !geoAllowed && requireGeo
+        : !geoAllowed && requireGeo
             ? distance === null
               ? 'Location access is required for this office. Tap refresh after allowing location permission.'
               : 'You are outside the allowed office location.'
+          : !ipAllowed && requireIp
+            ? 'Your network is not allowed for this office.'
             : 'Attendance cannot be marked.';
 
       const computed: LocationInfo = {
@@ -799,7 +806,7 @@ export function AttendanceSystem() {
     if (!refreshed?.info.isAllowed) {
       toast({
         title: "Location Restricted",
-        description: refreshed?.info.reason || "You can only mark attendance from the allowed network and location.",
+        description: refreshed?.info.reason || "You can only mark attendance from an allowed location or network.",
         variant: "destructive"
       });
       return;
@@ -922,7 +929,7 @@ export function AttendanceSystem() {
     if (!refreshed?.info.isAllowed) {
       toast({
         title: "Location Restricted",
-        description: refreshed?.info.reason || "You can only mark attendance from the allowed network and location.",
+        description: refreshed?.info.reason || "You can only mark attendance from an allowed location or network.",
         variant: "destructive"
       });
       return;
@@ -963,14 +970,7 @@ export function AttendanceSystem() {
 
       const totalMinutesSinceCheckIn = Math.max(0, Math.floor((Date.now() - checkInAt.getTime()) / 60000));
 
-      let breakTotal = attendance.break_total_minutes ?? 0;
-      if (attendance.break_start_at) {
-        const breakStart = new Date(attendance.break_start_at);
-        const extraBreakMinutes = Math.max(0, Math.floor((Date.now() - breakStart.getTime()) / 60000));
-        breakTotal += extraBreakMinutes;
-      }
-
-      const billableBreakMinutes = Math.max(breakTotal, officeSettings.sopBreakMinutes);
+      const billableBreakMinutes = attendance.break_total_minutes ?? 0;
       const workMinutes = Math.max(0, totalMinutesSinceCheckIn - billableBreakMinutes);
       const totalHoursStr = formatMinutes(workMinutes);
       const breakDurationStr = `${billableBreakMinutes} minutes`;
@@ -1039,7 +1039,7 @@ export function AttendanceSystem() {
     if (!refreshed?.info.isAllowed) {
       toast({
         title: "Location Restricted",
-        description: refreshed?.info.reason || "You can only manage breaks from the allowed network and location.",
+        description: refreshed?.info.reason || "You can only manage breaks from an allowed location or network.",
         variant: "destructive",
       });
       return;
@@ -1143,7 +1143,7 @@ export function AttendanceSystem() {
     if (!refreshed?.info.isAllowed) {
       toast({
         title: "Location Restricted",
-        description: refreshed?.info.reason || "You can only manage breaks from the allowed network and location.",
+        description: refreshed?.info.reason || "You can only manage breaks from an allowed location or network.",
         variant: "destructive",
       });
       return;

@@ -30,7 +30,7 @@ import {
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { formatTime12h } from '@/lib/utils';
-import { formatTimeOnlyInTimeZone, intervalToMinutes, PAKISTAN_TIME_ZONE, UK_TIME_ZONE, zonedTimeToUtc } from '@/lib/timezones';
+import { formatTimeOnlyInTimeZone, PAKISTAN_TIME_ZONE, UK_TIME_ZONE, zonedTimeToUtc } from '@/lib/timezones';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -71,7 +71,6 @@ interface Employee {
 interface Office {
   id: string;
   name: string;
-  breakDurationMinutes: number;
 }
 
 interface EarlyCheckoutRequestRow {
@@ -131,7 +130,7 @@ export default function Attendance() {
     employeeId: '',
     inTime: '',
     outTime: '',
-    breakMinutes: '45',
+    breakMinutes: '0',
     status: 'present',
   });
   const [editAttendance, setEditAttendance] = useState({
@@ -221,27 +220,17 @@ export default function Attendance() {
   };
 
   const fetchOffices = async () => {
-    const { data, error } = await supabase.from('offices').select('id, name, office_settings(break_duration)').order('name');
+    const { data, error } = await supabase.from('offices').select('id, name').order('name');
     if (error) {
       console.error('Error fetching offices:', error);
       return;
     }
     setOffices(
-      (data ?? []).map((office) => {
-        const settings = Array.isArray(office.office_settings) ? office.office_settings[0] : office.office_settings;
-        return {
-          id: office.id,
-          name: office.name,
-          breakDurationMinutes: intervalToMinutes(settings?.break_duration, 45),
-        };
-      }),
+      (data ?? []).map((office) => ({
+        id: office.id,
+        name: office.name,
+      })),
     );
-  };
-
-  const getEmployeeSopBreakMinutes = (employeeId: string) => {
-    const employee = employees.find((emp) => emp.id === employeeId);
-    const office = employee?.office_id ? offices.find((row) => row.id === employee.office_id) : null;
-    return office?.breakDurationMinutes ?? 45;
   };
 
   const fetchAttendance = async () => {
@@ -389,7 +378,7 @@ export default function Attendance() {
       });
 
       setIsDialogOpen(false);
-      setNewAttendance({ employeeId: '', inTime: '', outTime: '', breakMinutes: '45', status: 'present' });
+      setNewAttendance({ employeeId: '', inTime: '', outTime: '', breakMinutes: '0', status: 'present' });
       fetchAttendance();
     } catch (error: unknown) {
       toast({
@@ -751,7 +740,7 @@ export default function Attendance() {
                 <Select
                   value={newAttendance.employeeId}
                   onValueChange={(value) =>
-                    setNewAttendance({ ...newAttendance, employeeId: value, breakMinutes: String(getEmployeeSopBreakMinutes(value)) })
+                    setNewAttendance({ ...newAttendance, employeeId: value, breakMinutes: '0' })
                   }
                 >
                   <SelectTrigger>
