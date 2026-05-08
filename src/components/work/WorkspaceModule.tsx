@@ -26,7 +26,7 @@ import {
   UserPlus,
   Users,
 } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
@@ -638,11 +638,14 @@ export function WorkspaceModule({ mode, initialTab = 'tasks', chatOnly = false }
         content: `Attached ${attachments.length === 1 ? attachments[0].name : `${attachments.length} files`}.`,
       });
       setTasks((current) =>
-        patchTask(current, task.id, {
-          comments: [...(findTask(current, task.id)?.comments ?? []), comment],
-          attachments: [...attachments, ...(findTask(current, task.id)?.attachments ?? [])],
-          comment_count: task.comment_count + 1,
-        }),
+        {
+          const currentTask = findTask(current, task.id);
+          return patchTask(current, task.id, {
+            comments: [...(currentTask?.comments ?? []), comment],
+            attachments: [...attachments, ...(currentTask?.attachments ?? [])],
+            comment_count: (currentTask?.comment_count ?? task.comment_count) + 1,
+          });
+        },
       );
       toast({ title: 'Attachment uploaded' });
     } catch (error) {
@@ -675,10 +678,13 @@ export function WorkspaceModule({ mode, initialTab = 'tasks', chatOnly = false }
       });
       setCommentDrafts((current) => ({ ...current, [task.id]: '' }));
       setTasks((current) =>
-        patchTask(current, task.id, {
-          comments: [...(findTask(current, task.id)?.comments ?? []), comment],
-          comment_count: task.comment_count + 1,
-        }),
+        {
+          const currentTask = findTask(current, task.id);
+          return patchTask(current, task.id, {
+            comments: [...(currentTask?.comments ?? []), comment],
+            comment_count: (currentTask?.comment_count ?? task.comment_count) + 1,
+          });
+        },
       );
     } catch (error) {
       toast({
@@ -1473,59 +1479,77 @@ function ProjectTimeline({
                   {group.tasks.map((task) => {
                     const comments = task.comments ?? [];
                     return (
-                      <button
-                        key={task.id}
-                        type="button"
-                        onClick={() => onSelectTask(task)}
-                        className={cn(
-                          'block w-full rounded-lg border bg-background text-left shadow-sm transition-all hover:border-primary/40 hover:shadow-[var(--shadow-card)]',
-                          selectedTaskId === task.id ? 'border-primary ring-2 ring-primary/15' : null,
-                        )}
-                      >
-                        <div className="border-l-4 p-4" style={{ borderLeftColor: PRIORITY_COLORS[task.priority] }}>
-                          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <h4 className="font-semibold leading-6">{task.title}</h4>
-                                <Badge variant="outline">{PRIORITY_LABELS[task.priority]}</Badge>
+                      <div key={task.id} className="space-y-3">
+                        <button
+                          type="button"
+                          onClick={() => onSelectTask(task)}
+                          className={cn(
+                            'block w-full rounded-lg border bg-background text-left shadow-sm transition-all hover:border-primary/40 hover:shadow-[var(--shadow-card)]',
+                            selectedTaskId === task.id ? 'border-primary ring-2 ring-primary/15' : null,
+                          )}
+                        >
+                          <div className="border-l-4 p-4" style={{ borderLeftColor: PRIORITY_COLORS[task.priority] }}>
+                            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <h4 className="font-semibold leading-6">{task.title}</h4>
+                                  <Badge variant="outline">{PRIORITY_LABELS[task.priority]}</Badge>
+                                  <Badge variant="secondary">Task</Badge>
+                                </div>
+                                {task.description ? <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{task.description}</p> : null}
                               </div>
-                              {task.description ? <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{task.description}</p> : null}
-                            </div>
-                            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                              {task.due_date ? (
-                                <span className="rounded-md border bg-card px-2 py-1">
-                                  <Calendar className="mr-1 inline h-3 w-3" />
-                                  {task.due_date}
-                                </span>
-                              ) : null}
-                              <span className="rounded-md border bg-card px-2 py-1">{task.assignee_name || 'Unassigned'}</span>
+                              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                                {task.due_date ? (
+                                  <span className="rounded-md border bg-card px-2 py-1">
+                                    <Calendar className="mr-1 inline h-3 w-3" />
+                                    {task.due_date}
+                                  </span>
+                                ) : null}
+                                <span className="rounded-md border bg-card px-2 py-1">{task.assignee_name || 'Unassigned'}</span>
+                              </div>
                             </div>
                           </div>
+                        </button>
 
-                          <div className="mt-4 space-y-2 border-l border-dashed pl-4">
-                            {comments.slice(-3).map((comment) => (
-                              <div key={comment.id} className="flex gap-3 rounded-md bg-card p-3">
-                                <Avatar className="h-8 w-8">
-                                  <AvatarImage src={comment.user?.avatar_url || undefined} />
-                                  <AvatarFallback>{initials(comment.user?.full_name || 'U')}</AvatarFallback>
-                                </Avatar>
-                                <div className="min-w-0">
+                        <div className="space-y-3 border-l border-dashed pl-5">
+                          {comments.map((comment) => (
+                            <button
+                              key={comment.id}
+                              type="button"
+                              onClick={() => onSelectTask(task)}
+                              className="block w-full rounded-lg border bg-background text-left shadow-sm transition-all hover:border-primary/40 hover:shadow-[var(--shadow-card)]"
+                            >
+                              <div className="border-l-4 border-l-primary/60 p-4">
+                                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <Badge variant="secondary">Update</Badge>
+                                    <Badge variant="outline">{task.title}</Badge>
+                                  </div>
+                                  <span className="text-xs text-muted-foreground">{format(new Date(comment.created_at), 'MMM d, h:mm a')}</span>
+                                </div>
+                                <div className="flex gap-3">
+                                  <Avatar className="h-8 w-8">
+                                    <AvatarImage src={comment.user?.avatar_url || undefined} />
+                                    <AvatarFallback>{initials(comment.user?.full_name || 'U')}</AvatarFallback>
+                                  </Avatar>
+                                  <div className="min-w-0">
                                   <div className="flex flex-wrap items-center gap-2 text-xs">
                                     <span className="font-medium text-foreground">{comment.user?.full_name || 'Unknown'}</span>
                                     <span className="text-muted-foreground">{formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}</span>
                                   </div>
-                                  <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{comment.content}</p>
+                                    <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{comment.content}</p>
+                                  </div>
                                 </div>
                               </div>
-                            ))}
-                            {comments.length === 0 ? (
-                              <div className="rounded-md border border-dashed bg-card/60 px-3 py-2 text-sm text-muted-foreground">
-                                No employee update loaded yet. Open this task to add progress.
-                              </div>
-                            ) : null}
-                          </div>
+                            </button>
+                          ))}
+                          {comments.length === 0 ? (
+                            <div className="rounded-md border border-dashed bg-card/60 px-3 py-2 text-sm text-muted-foreground">
+                              No employee update loaded yet. Open this task to add progress.
+                            </div>
+                          ) : null}
                         </div>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -1651,10 +1675,10 @@ function TaskDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] max-w-5xl overflow-hidden p-0">
+      <DialogContent className="grid h-[88vh] max-h-[88vh] max-w-5xl grid-rows-[7rem_minmax(0,1fr)] gap-0 overflow-hidden p-0">
         <div className="h-28 border-b bg-gradient-to-r from-slate-100 via-secondary/70 to-primary/10" />
-        <div className="grid min-h-0 lg:grid-cols-[minmax(0,1fr)_360px]">
-          <ScrollArea className="max-h-[calc(88vh-7rem)]">
+        <div className="grid min-h-0 overflow-hidden lg:grid-cols-[minmax(0,1fr)_360px]">
+          <ScrollArea className="h-full">
             <div className="space-y-6 p-6">
               <DialogHeader className="space-y-3 text-left">
                 <div className="flex items-start gap-3">
@@ -1818,8 +1842,8 @@ function TaskDetailDialog({
             </div>
           </ScrollArea>
 
-          <aside className="border-t bg-muted/20 lg:border-l lg:border-t-0">
-            <ScrollArea className="max-h-[calc(88vh-7rem)]">
+          <aside className="min-h-0 border-t bg-muted/20 lg:border-l lg:border-t-0">
+            <ScrollArea className="h-full">
               <div className="space-y-5 p-5">
                 <div className="grid grid-cols-2 gap-2">
                   <DetailTile label="Status" value={STATUS_LABELS[task.status]} />

@@ -223,18 +223,14 @@ export async function fetchTaskComments(taskId: string): Promise<WorkTaskComment
     .is('parent_id', null)
     .order('created_at');
   if (error) throw error;
-  const comments = (data ?? []) as WorkTaskComment[];
-  const profiles = await fetchProfilesById(comments.map((comment) => comment.user_id));
-  return comments.map((comment) => ({
-    ...comment,
-    user: profiles.get(comment.user_id),
-  }));
+  return hydrateTaskComments((data ?? []) as WorkTaskComment[]);
 }
 
 export async function createTaskComment(comment: Partial<WorkTaskComment>): Promise<WorkTaskComment> {
   const { data, error } = await workDb.from('work_task_comments').insert(comment).select().single();
   if (error) throw error;
-  return data as WorkTaskComment;
+  const [hydratedComment] = await hydrateTaskComments([data as WorkTaskComment]);
+  return hydratedComment;
 }
 
 export async function updateTaskComment(id: string, updates: Partial<WorkTaskComment>): Promise<WorkTaskComment> {
@@ -433,6 +429,29 @@ async function fetchProfilesById(userIds: string[]) {
   }
 
   return profiles;
+}
+
+async function hydrateTaskComments(comments: WorkTaskComment[]) {
+  if (comments.length === 0) return comments;
+
+  const userIds = comments.map((comment) => comment.user_id);
+  const [profiles, employees] = await Promise.all([
+    fetchProfilesById(userIds),
+    fetchEmployeesByUserId(userIds),
+  ]);
+
+  return comments.map((comment) => {
+    const profile = profiles.get(comment.user_id);
+    const employee = employees.get(comment.user_id);
+
+    return {
+      ...comment,
+      user: {
+        full_name: profile?.full_name || employee?.employee_id || 'Unknown user',
+        avatar_url: profile?.avatar_url ?? null,
+      },
+    };
+  });
 }
 
 async function fetchEmployeesByUserId(userIds: string[]) {
