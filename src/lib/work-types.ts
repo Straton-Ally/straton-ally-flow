@@ -25,6 +25,7 @@ export interface WorkTeamMember {
     full_name: string
     email: string
     avatar_url: string | null
+    designation?: string | null
   }
 }
 

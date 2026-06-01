@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   CircleDot,
   Download,
+  Check,
   FileText,
   Flag,
   Hash,
@@ -16,6 +17,7 @@ import {
   Lock,
   MessageSquare,
   Paperclip,
+  Pencil,
   Plus,
   Reply,
   Search,
@@ -50,6 +52,8 @@ import {
   createProject,
   createTask,
   createTaskComment,
+  deleteChatMessage,
+  editChatMessage,
   fetchChatMessages,
   fetchChatRooms,
   fetchTaskAttachments,
@@ -104,6 +108,12 @@ type ProfileOption = {
   full_name: string;
   email: string | null;
   avatar_url: string | null;
+  designation?: string | null;
+};
+
+type EmployeeDesignation = {
+  user_id: string;
+  designation: string | null;
 };
 
 type ProjectTaskWithComments = ProjectTask & {
@@ -128,10 +138,9 @@ const quickReactions = ['👍', '✅', '👀'];
 interface WorkspaceModuleProps {
   mode: WorkspaceMode;
   initialTab?: WorkspaceTab;
-  chatOnly?: boolean;
 }
 
-export function WorkspaceModule({ mode, initialTab = 'tasks', chatOnly = false }: WorkspaceModuleProps) {
+export function WorkspaceModule({ mode, initialTab = 'tasks' }: WorkspaceModuleProps) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { toast } = useToast();
@@ -363,6 +372,7 @@ export function WorkspaceModule({ mode, initialTab = 'tasks', chatOnly = false }
     const rows = (data ?? []) as WorkTeamMember[];
     const userIds = rows.map((member) => member.user_id);
     const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
+    const designationsByUserId = new Map<string, string | null>();
 
     if (userIds.length > 0 && profiles.length === 0) {
       const freshProfiles = await fetchProfiles();
@@ -370,9 +380,24 @@ export function WorkspaceModule({ mode, initialTab = 'tasks', chatOnly = false }
       freshProfiles.forEach((profile) => profilesById.set(profile.id, profile));
     }
 
+    if (userIds.length > 0) {
+      const { data: employeeRows, error: employeeError } = await workspaceDb.rpc(
+        'get_work_team_member_designations',
+        { _team_id: teamId },
+      );
+
+      if (employeeError) throw employeeError;
+      ((employeeRows ?? []) as EmployeeDesignation[]).forEach((employee) => {
+        designationsByUserId.set(employee.user_id, employee.designation);
+      });
+    }
+
     return rows.map((member) => ({
       ...member,
-      profile: profilesById.get(member.user_id) ?? member.profile,
+      profile: {
+        ...(profilesById.get(member.user_id) ?? member.profile),
+        designation: designationsByUserId.get(member.user_id) ?? member.profile?.designation ?? null,
+      },
     }));
   };
 
@@ -777,6 +802,60 @@ export function WorkspaceModule({ mode, initialTab = 'tasks', chatOnly = false }
     }
   };
 
+  const handleEditMessage = async (message: WorkChatMessage, content: string) => {
+    if (!user?.id || message.user_id !== user.id) return;
+
+    const nextContent = content.trim();
+    if (!nextContent) {
+      toast({
+        title: 'Message not updated',
+        description: 'Message cannot be empty.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const previous = messages;
+    setMessages((current) =>
+      current.map((row) =>
+        row.id === message.id
+          ? { ...row, content: nextContent, is_edited: true, updated_at: new Date().toISOString() }
+          : row,
+      ),
+    );
+
+    try {
+      await editChatMessage(message.id, nextContent);
+      await loadMessages(selectedRoomId);
+    } catch (error) {
+      setMessages(previous);
+      toast({
+        title: 'Message not updated',
+        description: errorMessage(error, 'Unable to edit this message.'),
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDeleteMessage = async (message: WorkChatMessage) => {
+    if (!user?.id || message.user_id !== user.id) return;
+    if (!window.confirm('Delete this message?')) return;
+
+    const previous = messages;
+    setMessages((current) => current.filter((row) => row.id !== message.id));
+
+    try {
+      await deleteChatMessage(message.id);
+    } catch (error) {
+      setMessages(previous);
+      toast({
+        title: 'Message not deleted',
+        description: errorMessage(error, 'Unable to delete this message.'),
+        variant: 'destructive',
+      });
+    }
+  };
+
   const availableProfiles = profiles.filter((profile) => !memberIds.has(profile.id));
 
   if (loading) {
@@ -939,7 +1018,7 @@ export function WorkspaceModule({ mode, initialTab = 'tasks', chatOnly = false }
                         key={project.id}
                         onClick={() => {
                           setSelectedProjectId(project.id);
-                          if (!chatOnly) setActiveTab('tasks');
+                          setActiveTab('tasks');
                         }}
                         className={cn(
                           'flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors',
@@ -1041,23 +1120,21 @@ export function WorkspaceModule({ mode, initialTab = 'tasks', chatOnly = false }
                   {selectedUserTeam?.role ? <span className="text-xs text-muted-foreground">Your role: {roleLabel(selectedUserTeam.role)}</span> : null}
                 </div>
                 <h1 className="truncate text-2xl font-semibold">
-                  {activeTab === 'chat' || chatOnly ? selectedRoom?.name || 'Team chat' : selectedProject?.name || 'Work board'}
+                  {activeTab === 'chat' ? selectedRoom?.name || 'Team chat' : selectedProject?.name || 'Work board'}
                 </h1>
                 <p className="mt-1 truncate text-sm text-muted-foreground">
-                  {activeTab === 'chat' || chatOnly
+                  {activeTab === 'chat'
                     ? selectedRoom?.description || 'Team channel with replies, reactions, and file sharing.'
                     : selectedProject?.description || 'Plan work, update progress, discuss tasks, and keep execution visible.'}
                 </p>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                {!chatOnly ? (
-                  <div className="flex rounded-lg border bg-muted p-1">
-                    <MainTabButton active={activeTab === 'tasks'} onClick={() => setActiveTab('tasks')} icon={<KanbanSquare className="h-4 w-4" />} label="Timeline" />
-                    {mode === 'admin' ? <MainTabButton active={activeTab === 'members'} onClick={() => setActiveTab('members')} icon={<Users className="h-4 w-4" />} label="People" /> : null}
-                    <MainTabButton active={activeTab === 'chat'} onClick={() => setActiveTab('chat')} icon={<MessageSquare className="h-4 w-4" />} label="Chat" />
-                  </div>
-                ) : null}
+                <div className="flex rounded-lg border bg-muted p-1">
+                  <MainTabButton active={activeTab === 'tasks'} onClick={() => setActiveTab('tasks')} icon={<KanbanSquare className="h-4 w-4" />} label="Timeline" />
+                  {mode === 'admin' ? <MainTabButton active={activeTab === 'members'} onClick={() => setActiveTab('members')} icon={<Users className="h-4 w-4" />} label="People" /> : null}
+                  <MainTabButton active={activeTab === 'chat'} onClick={() => setActiveTab('chat')} icon={<MessageSquare className="h-4 w-4" />} label="Chat" />
+                </div>
 
                 {activeTab === 'tasks' && canCreateTask && selectedProjectId ? (
                   <Dialog open={taskDialogOpen} onOpenChange={setTaskDialogOpen}>
@@ -1164,7 +1241,7 @@ export function WorkspaceModule({ mode, initialTab = 'tasks', chatOnly = false }
               </div>
             </header>
 
-            {activeTab === 'tasks' && !chatOnly ? (
+            {activeTab === 'tasks' ? (
               <section className="p-4 lg:p-6">
                 {!selectedProject ? (
                   <Card className="border-dashed">
@@ -1186,7 +1263,7 @@ export function WorkspaceModule({ mode, initialTab = 'tasks', chatOnly = false }
               </section>
             ) : null}
 
-            {mode === 'admin' && activeTab === 'members' && !chatOnly ? (
+            {mode === 'admin' && activeTab === 'members' ? (
               <section className="grid gap-4 p-4 xl:grid-cols-3">
                 {members.map((member) => (
                   <Card key={member.id} className="overflow-hidden">
@@ -1215,8 +1292,8 @@ export function WorkspaceModule({ mode, initialTab = 'tasks', chatOnly = false }
               </section>
             ) : null}
 
-            {(activeTab === 'chat' || chatOnly) ? (
-              <section className="grid h-[calc(100vh-16rem)] min-h-[680px] gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+            {activeTab === 'chat' ? (
+              <section className="grid h-[calc(100vh-18rem)] min-h-[420px] gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_320px]">
                 <Card className="flex min-h-0 flex-col overflow-hidden">
                   <CardHeader className="border-b py-3">
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -1235,24 +1312,7 @@ export function WorkspaceModule({ mode, initialTab = 'tasks', chatOnly = false }
                       </div>
                     </div>
                   </CardHeader>
-                  <ScrollArea className="min-h-0 flex-1 p-4">
-                    <div className="space-y-3">
-                      {messages.length === 0 ? (
-                        <div className="flex min-h-[420px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
-                          Start the team conversation.
-                        </div>
-                      ) : filteredMessages.length === 0 ? (
-                        <div className="flex min-h-[420px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
-                          No messages match your search.
-                        </div>
-                      ) : (
-                        filteredMessages.map((message) => (
-                          <ChatMessageRow key={message.id} message={message} currentUserId={user?.id} onReply={setReplyToMessage} onReact={handleToggleReaction} />
-                        ))
-                      )}
-                    </div>
-                  </ScrollArea>
-                  <div className="border-t bg-card p-3">
+                  <div className="border-b bg-card p-3">
                     {replyToMessage ? (
                       <div className="mb-2 flex items-start justify-between gap-3 rounded-md border bg-muted/40 px-3 py-2">
                         <div className="min-w-0 text-xs">
@@ -1282,7 +1342,7 @@ export function WorkspaceModule({ mode, initialTab = 'tasks', chatOnly = false }
                       <Button type="button" variant="ghost" size="icon" disabled={!selectedRoomId} onClick={() => fileInputRef.current?.click()}>
                         <Paperclip className="h-4 w-4" />
                       </Button>
-                      <Input
+                      <Textarea
                         value={newMessage}
                         onChange={(event) => setNewMessage(event.target.value)}
                         onKeyDown={(event) => {
@@ -1293,13 +1353,39 @@ export function WorkspaceModule({ mode, initialTab = 'tasks', chatOnly = false }
                         }}
                         placeholder={selectedRoomId ? `Message #${selectedRoom?.name || 'channel'}` : 'Select a channel'}
                         disabled={!selectedRoomId}
-                        className="border-0 bg-transparent shadow-none focus-visible:ring-0"
+                        className="min-h-10 resize-none border-0 bg-transparent py-2 shadow-none focus-visible:ring-0"
                       />
-                      <Button onClick={handleSendMessage} disabled={!selectedRoomId || (!newMessage.trim() && pendingFiles.length === 0)}>
+                      <Button className="self-end" onClick={handleSendMessage} disabled={!selectedRoomId || (!newMessage.trim() && pendingFiles.length === 0)}>
                         <Send className="h-4 w-4" />
+                        <span className="ml-2 hidden sm:inline">Send</span>
                       </Button>
                     </div>
                   </div>
+                  <ScrollArea className="min-h-0 flex-1">
+                    <div className="space-y-3 p-4">
+                      {messages.length === 0 ? (
+                        <div className="flex min-h-[420px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
+                          Start the team conversation.
+                        </div>
+                      ) : filteredMessages.length === 0 ? (
+                        <div className="flex min-h-[420px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
+                          No messages match your search.
+                        </div>
+                      ) : (
+                        filteredMessages.map((message) => (
+                          <ChatMessageRow
+                            key={message.id}
+                            message={message}
+                            currentUserId={user?.id}
+                            onReply={setReplyToMessage}
+                            onReact={handleToggleReaction}
+                            onEdit={handleEditMessage}
+                            onDelete={handleDeleteMessage}
+                          />
+                        ))
+                      )}
+                    </div>
+                  </ScrollArea>
                 </Card>
 
                 <aside className="space-y-4">
@@ -1583,7 +1669,7 @@ function ProjectTimeline({
                 </Avatar>
                 <div className="min-w-0">
                   <div className="truncate text-sm font-medium">{memberName(member)}</div>
-                  <div className="text-xs text-muted-foreground">{roleLabel(member.role)}</div>
+                  <div className="truncate text-xs text-muted-foreground">{memberDesignation(member)}</div>
                 </div>
               </div>
             ))}
@@ -1942,13 +2028,30 @@ function ChatMessageRow({
   currentUserId,
   onReply,
   onReact,
+  onEdit,
+  onDelete,
 }: {
   message: WorkChatMessage;
   currentUserId?: string;
   onReply: (message: WorkChatMessage) => void;
   onReact: (message: WorkChatMessage, reaction: string) => void;
+  onEdit: (message: WorkChatMessage, content: string) => void;
+  onDelete: (message: WorkChatMessage) => void;
 }) {
   const reactionEntries = Object.entries(message.reactions ?? {}).filter(([, userIds]) => userIds.length > 0);
+  const canManageOwnMessage = currentUserId === message.user_id;
+  const [isEditing, setIsEditing] = useState(false);
+  const [editDraft, setEditDraft] = useState(message.content);
+
+  useEffect(() => {
+    setEditDraft(message.content);
+    setIsEditing(false);
+  }, [message.content, message.id]);
+
+  const saveEdit = () => {
+    onEdit(message, editDraft);
+    setIsEditing(false);
+  };
 
   return (
     <div className="group flex gap-3 rounded-lg px-3 py-3 hover:bg-muted/40">
@@ -1974,7 +2077,35 @@ function ChatMessageRow({
             <span className="line-clamp-2 text-muted-foreground">{message.parent.content}</span>
           </button>
         ) : null}
-        <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-foreground">{message.content}</p>
+        {isEditing ? (
+          <div className="mt-2 space-y-2">
+            <Textarea
+              value={editDraft}
+              onChange={(event) => setEditDraft(event.target.value)}
+              className="min-h-[84px] resize-none text-sm"
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setEditDraft(message.content);
+                  setIsEditing(false);
+                }}
+              >
+                <X className="mr-2 h-4 w-4" />
+                Cancel
+              </Button>
+              <Button type="button" size="sm" disabled={!editDraft.trim()} onClick={saveEdit}>
+                <Check className="mr-2 h-4 w-4" />
+                Save
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-foreground">{message.content}</p>
+        )}
         {message.attachments?.length ? (
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {message.attachments.map((attachment) => (
@@ -2014,6 +2145,28 @@ function ChatMessageRow({
               <span className="text-sm">{reaction}</span>
             </Button>
           ))}
+          {canManageOwnMessage ? (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => setIsEditing(true)}
+              >
+                <Pencil className="mr-1 h-3.5 w-3.5" />
+                Edit
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                onClick={() => onDelete(message)}
+              >
+                <Trash2 className="mr-1 h-3.5 w-3.5" />
+                Delete
+              </Button>
+            </>
+          ) : null}
           <SmilePlus className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
         </div>
       </div>
@@ -2261,6 +2414,10 @@ function findTask(columns: Record<WorkTaskStatusV2, ProjectTaskWithComments[]>, 
 
 function memberName(member: WorkTeamMember | undefined) {
   return member?.profile?.full_name || member?.profile?.email || member?.user_id || 'Unknown user';
+}
+
+function memberDesignation(member: WorkTeamMember) {
+  return member.profile?.designation?.trim() || roleLabel(member.role);
 }
 
 function roleLabel(role: WorkTeamRole) {

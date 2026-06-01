@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { Search, Bell, Briefcase, LogOut, MessageSquare, Calculator } from 'lucide-react';
+import { Search, Bell, Briefcase, LogOut, Calculator } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -141,16 +141,6 @@ export function EmployeeTopNav() {
               FlowMath
             </Button>
           ) : null}
-
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => navigate('/employee/chat')}
-            title="Chat"
-          >
-            <MessageSquare className="h-4 w-4" />
-          </Button>
 
           <Button
             variant="ghost"

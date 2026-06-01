@@ -35,7 +35,6 @@ const moreNavItems = [
   { label: 'Dashboard', href: '/employee/dashboard' },
   { label: 'Attendance', href: '/employee/attendance' },
   { label: 'Workspace', href: '/employee/work' },
-  { label: 'Chat', href: '/employee/chat' },
   { label: 'Salary', href: '/employee/salary' },
   { label: 'Notifications', href: '/employee/notifications' },
   { label: 'Settings', href: '/employee/settings' },

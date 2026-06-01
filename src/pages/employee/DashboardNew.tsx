@@ -26,7 +26,6 @@ export default function EmployeeDashboard() {
         return <SalaryProgress />;
       case 'tasks':
       case 'team':
-      case 'chat':
         return <WorkspaceModule mode="employee" />;
       case 'notifications':
         return <Notifications />;
@@ -198,7 +197,7 @@ export default function EmployeeDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="card-elevated cursor-pointer hover:shadow-lg transition-shadow" onClick={() => setCurrentPage('chat')}>
+        <Card className="card-elevated cursor-pointer hover:shadow-lg transition-shadow" onClick={() => setCurrentPage('tasks')}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Briefcase className="h-5 w-5" />
@@ -207,10 +206,10 @@ export default function EmployeeDashboard() {
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground mb-4">
-              Chat with team members in real-time
+              Open projects, tasks, and workspace chat
             </p>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">2 active chats</span>
+              <span className="text-sm text-muted-foreground">Workspace hub</span>
               <div className="w-2 h-2 bg-blue-500 rounded-full" />
             </div>
           </CardContent>

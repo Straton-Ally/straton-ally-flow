@@ -73,6 +73,17 @@ export interface FlowMathDocument {
   counterparty?: Pick<FlowMathCounterparty, "name" | "type"> | null;
 }
 
+export interface FlowMathDocumentLine {
+  id: string;
+  document_id: string;
+  description: string;
+  debit_account_id: string;
+  credit_account_id: string;
+  quantity: number;
+  unit_amount: number;
+  line_no: number;
+}
+
 export interface FlowMathPayrollRun {
   id: string;
   run_no: string;
@@ -206,6 +217,11 @@ export async function updateAccount(id: string, payload: Partial<FlowMathAccount
   if (error) throw error;
 }
 
+export async function deleteAccount(id: string) {
+  const { error } = await db.from("flowmath_accounts").delete().eq("id", id);
+  if (error) throw error;
+}
+
 export async function listCounterparties(type?: "vendor" | "customer") {
   let query = db.from("flowmath_counterparties").select("*").order("name");
   if (type) query = query.eq("type", type);
@@ -217,6 +233,11 @@ export async function listCounterparties(type?: "vendor" | "customer") {
 export async function saveCounterparty(payload: Partial<FlowMathCounterparty> & { type: "vendor" | "customer"; name: string }, id?: string) {
   const query = id ? db.from("flowmath_counterparties").update(payload).eq("id", id) : db.from("flowmath_counterparties").insert(payload);
   const { error } = await query;
+  if (error) throw error;
+}
+
+export async function deleteCounterparty(id: string) {
+  const { error } = await db.from("flowmath_counterparties").delete().eq("id", id);
   if (error) throw error;
 }
 
@@ -256,6 +277,39 @@ export async function createJournalEntry(payload: { entry_date: string; memo: st
   const { error: linesError } = await db.from("flowmath_journal_lines").insert(lines);
   if (linesError) throw linesError;
   return entry as FlowMathJournalEntry;
+}
+
+export async function updateJournalEntry(id: string, payload: { entry_date: string; memo: string; lines: Array<{ account_id: string; description?: string; debit: number; credit: number }> }) {
+  const { error: entryError } = await db
+    .from("flowmath_journal_entries")
+    .update({ entry_date: payload.entry_date, memo: payload.memo })
+    .eq("id", id)
+    .eq("status", "draft");
+  if (entryError) throw entryError;
+
+  const { error: deleteError } = await db.from("flowmath_journal_lines").delete().eq("journal_entry_id", id);
+  if (deleteError) throw deleteError;
+
+  const lines = payload.lines.map((line, index) => ({
+    journal_entry_id: id,
+    account_id: line.account_id,
+    description: line.description || payload.memo,
+    debit: line.debit,
+    credit: line.credit,
+    line_no: index + 1,
+  }));
+  const { error: linesError } = await db.from("flowmath_journal_lines").insert(lines);
+  if (linesError) throw linesError;
+}
+
+export async function deleteJournalEntry(id: string) {
+  const { error } = await db.from("flowmath_journal_entries").delete().eq("id", id).eq("status", "draft");
+  if (error) throw error;
+}
+
+export async function unpostManualJournalEntry(id: string) {
+  const { error } = await db.rpc("unpost_flowmath_manual_journal_entry", { _journal_entry_id: id });
+  if (error) throw error;
 }
 
 export async function postJournalEntry(id: string) {
@@ -305,6 +359,55 @@ export async function createDocument(payload: {
   );
   if (lineError) throw lineError;
   return doc as FlowMathDocument;
+}
+
+export async function listDocumentLines(documentId: string) {
+  const { data, error } = await db
+    .from("flowmath_document_lines")
+    .select("*")
+    .eq("document_id", documentId)
+    .order("line_no");
+  if (error) throw error;
+  return (data ?? []) as FlowMathDocumentLine[];
+}
+
+export async function updateDocument(id: string, payload: {
+  document_date: string;
+  due_date?: string | null;
+  memo: string;
+  counterparty_id?: string | null;
+  lines: Array<{ description: string; debit_account_id: string; credit_account_id: string; quantity: number; unit_amount: number }>;
+}) {
+  const total_amount = payload.lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unit_amount || 0), 0);
+  const { error: docError } = await db
+    .from("flowmath_documents")
+    .update({
+      document_date: payload.document_date,
+      due_date: payload.due_date || null,
+      memo: payload.memo,
+      counterparty_id: payload.counterparty_id || null,
+      total_amount,
+    })
+    .eq("id", id)
+    .eq("status", "draft");
+  if (docError) throw docError;
+
+  const { error: deleteError } = await db.from("flowmath_document_lines").delete().eq("document_id", id);
+  if (deleteError) throw deleteError;
+
+  const { error: lineError } = await db.from("flowmath_document_lines").insert(
+    payload.lines.map((line, index) => ({
+      document_id: id,
+      ...line,
+      line_no: index + 1,
+    })),
+  );
+  if (lineError) throw lineError;
+}
+
+export async function deleteDocument(id: string) {
+  const { error } = await db.from("flowmath_documents").delete().eq("id", id).eq("status", "draft");
+  if (error) throw error;
 }
 
 export async function postDocument(id: string) {
