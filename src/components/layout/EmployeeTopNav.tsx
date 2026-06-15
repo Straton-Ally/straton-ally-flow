@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { Search, Bell, Briefcase, LogOut, Calculator } from 'lucide-react';
+import { Search, Bell, Briefcase, LogOut, Calculator, WalletCards } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -17,6 +17,7 @@ import { signOut } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { canAccessFlowMath } from '@/lib/flowmath';
+import { canAccessManagePay } from '@/lib/managepay';
 
 const navItems = [
   { label: 'Dashboard', href: '/employee/dashboard' },
@@ -32,6 +33,7 @@ export function EmployeeTopNav() {
   const firstName = user?.fullName?.split(' ')[0] || 'User';
   const [unreadWorkNotifications, setUnreadWorkNotifications] = useState(0);
   const [hasFlowMathAccess, setHasFlowMathAccess] = useState(false);
+  const [hasManagePayAccess, setHasManagePayAccess] = useState(false);
 
   const handleLogout = async () => {
     await signOut();
@@ -70,12 +72,18 @@ export function EmployeeTopNav() {
     let mounted = true;
     if (!user?.id) return;
 
-    canAccessFlowMath(user.id)
-      .then((allowed) => {
-        if (mounted) setHasFlowMathAccess(allowed);
+    Promise.all([canAccessFlowMath(user.id), canAccessManagePay(user.id)])
+      .then(([flowMathAllowed, managePayAllowed]) => {
+        if (mounted) {
+          setHasFlowMathAccess(flowMathAllowed);
+          setHasManagePayAccess(managePayAllowed);
+        }
       })
       .catch(() => {
-        if (mounted) setHasFlowMathAccess(false);
+        if (mounted) {
+          setHasFlowMathAccess(false);
+          setHasManagePayAccess(false);
+        }
       });
 
     return () => {
@@ -139,6 +147,13 @@ export function EmployeeTopNav() {
             <Button variant="outline" size="sm" className="hidden h-8 sm:inline-flex" onClick={() => navigate('/flowmath/dashboard')} title="FlowMath Accounts">
               <Calculator className="h-4 w-4" />
               FlowMath
+            </Button>
+          ) : null}
+
+          {hasManagePayAccess ? (
+            <Button variant="outline" size="sm" className="hidden h-8 sm:inline-flex" onClick={() => navigate('/managepay/dashboard')} title="ManagePay Terminal">
+              <WalletCards className="h-4 w-4" />
+              ManagePay
             </Button>
           ) : null}
 

@@ -9,6 +9,7 @@ import {
   LogOut,
   Settings,
   Calculator,
+  WalletCards,
 } from 'lucide-react';
 import {
   Sheet,
@@ -38,6 +39,7 @@ const moreNavItems = [
   { label: 'Recruitment', href: '/admin/recruitment' },
   { label: 'Work Management', href: '/admin/work' },
   { label: 'FlowMath', href: '/flowmath/dashboard' },
+  { label: 'ManagePay', href: '/managepay/dashboard' },
   { label: 'Logs', href: '/admin/logs' },
   { label: 'Settings', href: '/admin/settings' },
 ];
@@ -106,6 +108,7 @@ export function BottomNav() {
                   >
                     <span>{item.label}</span>
                     {item.label === 'FlowMath' ? <Calculator className="h-4 w-4 ml-auto" /> : null}
+                    {item.label === 'ManagePay' ? <WalletCards className="h-4 w-4 ml-auto" /> : null}
                   </Link>
                 );
               })}

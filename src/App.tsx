@@ -8,6 +8,7 @@ import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { FlowMathRoute } from "@/components/auth/FlowMathRoute";
+import { ManagePayRoute } from "@/components/auth/ManagePayRoute";
 import { PWAInstallPrompt } from "@/components/ui/pwa-install-prompt";
 
 // Pages
@@ -42,6 +43,7 @@ import SalaryPage from "./pages/employee/Salary";
 import NotificationsPage from "./pages/employee/Notifications";
 import EmployeeSettings from "./pages/employee/Settings";
 import { FlowMathLayout } from "./components/layout/FlowMathLayout";
+import { ManagePayLayout } from "./components/layout/ManagePayLayout";
 import {
   FlowMathAccountsPage,
   FlowMathBillsPage,
@@ -56,6 +58,16 @@ import {
   FlowMathSettingsPage,
   FlowMathVendorsPage,
 } from "./pages/flowmath/FlowMathPages";
+import {
+  ManagePayClientsPage,
+  ManagePayCompaniesPage,
+  ManagePayClientPreviewPage,
+  ManagePayDashboardPage,
+  ManagePayInvoicesPage,
+  ManagePaySettingsPage,
+  ManagePayTerminalPage,
+} from "./pages/managepay/ManagePayPages";
+import PublicInvoicePay from "./pages/managepay/PublicInvoicePay";
 
 const queryClient = new QueryClient();
 
@@ -84,6 +96,7 @@ const App = () => (
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/" element={<Navigate to="/login" replace />} />
+            <Route path="/pay/:invoiceId" element={<PublicInvoicePay />} />
 
             {/* Admin routes */}
             <Route
@@ -153,6 +166,25 @@ const App = () => (
               <Route path="bills" element={<FlowMathBillsPage />} />
               <Route path="reports" element={<FlowMathReportsPage />} />
               <Route path="settings" element={<FlowMathSettingsPage />} />
+            </Route>
+
+            {/* ManagePay payment and invoice routes */}
+            <Route
+              path="/managepay"
+              element={
+                <ManagePayRoute>
+                  <ManagePayLayout />
+                </ManagePayRoute>
+              }
+            >
+              <Route index element={<Navigate to="dashboard" replace />} />
+              <Route path="dashboard" element={<ManagePayDashboardPage />} />
+              <Route path="invoices" element={<ManagePayInvoicesPage />} />
+              <Route path="clients" element={<ManagePayClientsPage />} />
+              <Route path="companies" element={<ManagePayCompaniesPage />} />
+              <Route path="terminal" element={<ManagePayTerminalPage />} />
+              <Route path="settings" element={<ManagePaySettingsPage />} />
+              <Route path="client-preview/:invoiceId" element={<ManagePayClientPreviewPage />} />
             </Route>
 
             <Route path="/teams" element={<Navigate to="/employee/work" replace />} />

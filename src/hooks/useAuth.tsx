@@ -17,6 +17,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const PASSWORD_RESET_PATH = '/reset-password';
+const AUTH_REDIRECT_PATHS = new Set(['/', '/login', '/forgot-password', PASSWORD_RESET_PATH]);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -45,7 +46,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         
         if (event === 'SIGNED_IN' && newSession && !skipRedirect) {
-          if (location.pathname === PASSWORD_RESET_PATH) {
+          const currentPath = window.location.pathname;
+
+          if (currentPath === PASSWORD_RESET_PATH) {
             setIsLoading(false);
             return;
           }
@@ -56,9 +59,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // Check if this is a user creation that should skip redirect
             const shouldSkip = newSession.user?.user_metadata?.created_by_admin;
             
-            // Only redirect if we have a user with a role and we're not on admin pages
-            // and this isn't a user creation operation
-            if (authUser?.role && !location.pathname.startsWith('/admin') && !shouldSkip) {
+            // Only redirect from public auth entry points. Supabase may re-emit
+            // SIGNED_IN when a tab regains focus, and private routes must keep
+            // their current location.
+            if (authUser?.role && AUTH_REDIRECT_PATHS.has(currentPath) && !shouldSkip) {
               const redirectPath = getRedirectPath(authUser.role, authUser.isTeamLead);
               navigate(redirectPath, { replace: true });
             }

@@ -1,0 +1,907 @@
+import { useEffect, useMemo, useState } from "react";
+import { addDays, format } from "date-fns";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import {
+  amountToCents,
+  centsToAmount,
+  clearManagePayAccessOverride,
+  createManagePayInvoice,
+  createManagePayTerminalTransaction,
+  deleteManagePayClient,
+  deleteManagePayCompany,
+  deleteManagePayInvoice,
+  deleteManagePayService,
+  formatManagePayMoney,
+  getInvoiceClientPreviewUrl,
+  getInvoicePaymentUrl,
+  getPublicManagePayInvoice,
+  listManagePayAccessCandidates,
+  listManagePayClients,
+  listManagePayCompanies,
+  listManagePayInvoices,
+  listManagePayServices,
+  listManagePayTerminalTransactions,
+  ManagePayAccessCandidate,
+  ManagePayClient,
+  ManagePayCompany,
+  ManagePayInvoice,
+  ManagePayInvoiceService,
+  ManagePayLineItem,
+  ManagePayPaymentMethod,
+  ManagePayTerminalTransaction,
+  saveManagePayAccessOverride,
+  saveManagePayClient,
+  saveManagePayCompany,
+  saveManagePayService,
+  updateManagePayInvoice,
+  uploadManagePayCompanyLogo,
+} from "@/lib/managepay";
+import { cn } from "@/lib/utils";
+import { Copy, Eye, ImagePlus, Mail, MessageCircle, Pencil, Plus, QrCode, Search, Trash2 } from "lucide-react";
+import { InvoicePaymentView } from "@/pages/managepay/PublicInvoicePay";
+import { useParams } from "react-router-dom";
+
+const includesText = (value: unknown, query: string) => String(value ?? "").toLowerCase().includes(query.toLowerCase().trim());
+const newInvoiceNo = () => `INV-${format(new Date(), "yyyyMMdd-HHmmss")}`;
+const newLine = (): ManagePayLineItem => ({ id: crypto.randomUUID(), description: "", quantity: 1, rate: 0, amount: 0 });
+
+function PageHeader({ title, description, action }: { title: string; description: string; action?: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 className="text-2xl font-bold">{title}</h1>
+        <p className="text-sm text-muted-foreground">{description}</p>
+      </div>
+      {action}
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const className =
+    status === "paid" || status === "completed"
+      ? "badge-success"
+      : status === "pending"
+        ? "badge-warning"
+        : "badge-destructive";
+  return <Badge variant="outline" className={className}>{status}</Badge>;
+}
+
+function SearchInput({ value, onChange, placeholder = "Search" }: { value: string; onChange: (value: string) => void; placeholder?: string }) {
+  return (
+    <div className="relative w-full sm:max-w-xs">
+      <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+      <Input className="pl-9" placeholder={placeholder} value={value} onChange={(event) => onChange(event.target.value)} />
+    </div>
+  );
+}
+
+async function copyText(value: string, title: string, toast: ReturnType<typeof useToast>["toast"]) {
+  await navigator.clipboard.writeText(value);
+  toast({ title });
+}
+
+export function ManagePayDashboardPage() {
+  const [invoices, setInvoices] = useState<ManagePayInvoice[]>([]);
+  const [clients, setClients] = useState<ManagePayClient[]>([]);
+  const [companies, setCompanies] = useState<ManagePayCompany[]>([]);
+  const [companyFilter, setCompanyFilter] = useState("all");
+
+  useEffect(() => {
+    void Promise.all([listManagePayInvoices(), listManagePayClients(), listManagePayCompanies()]).then(([nextInvoices, nextClients, nextCompanies]) => {
+      setInvoices(nextInvoices);
+      setClients(nextClients);
+      setCompanies(nextCompanies);
+    });
+  }, []);
+
+  const visibleInvoices = invoices.filter((invoice) => {
+    if (companyFilter === "all") return true;
+    const company = invoice.metadata?.company as { id?: string } | undefined;
+    return company?.id === companyFilter;
+  });
+
+  const paidRevenue = visibleInvoices.filter((invoice) => invoice.status === "paid").reduce((sum, invoice) => sum + invoice.amount_in_cents, 0);
+  const totalInvoiced = visibleInvoices.reduce((sum, invoice) => sum + invoice.amount_in_cents, 0);
+  const pending = visibleInvoices.filter((invoice) => invoice.status === "pending").length;
+
+  return (
+    <div className="flex flex-col gap-5">
+      <PageHeader title="ManagePay Dashboard" description="Revenue, payment links, clients, and invoice status in one operational view." />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <Select value={companyFilter} onValueChange={setCompanyFilter}>
+          <SelectTrigger className="w-full sm:w-72"><SelectValue placeholder="Filter by company" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All companies</SelectItem>
+            {companies.map((company) => <SelectItem key={company.id} value={company.id}>{company.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        {[
+          ["Paid revenue", formatManagePayMoney(paidRevenue)],
+          ["Total invoiced", formatManagePayMoney(totalInvoiced)],
+          ["Invoices", String(visibleInvoices.length)],
+          ["Pending", String(pending)],
+          ["Active clients", String(clients.filter((client) => client.is_active).length)],
+        ].map(([label, value]) => (
+          <Card key={label} className="card-elevated">
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground">{label}</p>
+              <p className="mt-1 truncate text-xl font-semibold">{value}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      <Card className="card-elevated">
+        <CardHeader><CardTitle className="text-base">Recent invoices</CardTitle></CardHeader>
+        <CardContent className="p-0">
+          <InvoicesTable invoices={visibleInvoices.slice(0, 8)} onRefresh={() => listManagePayInvoices().then(setInvoices)} />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+export function ManagePayCompaniesPage() {
+  const [companies, setCompanies] = useState<ManagePayCompany[]>([]);
+  const [search, setSearch] = useState("");
+  const [editing, setEditing] = useState<ManagePayCompany | null>(null);
+  const [form, setForm] = useState({ name: "", email: "", address: "", phone: "", website: "", logo_url: "", payment_base_url: "", tax_id: "", logo_has_dark_bg: false, is_active: true });
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const isAdmin = user?.role === "admin";
+
+  const refresh = () => listManagePayCompanies().then(setCompanies);
+  useEffect(() => { void refresh(); }, []);
+
+  const reset = () => {
+    setEditing(null);
+    setLogoFile(null);
+    setForm({ name: "", email: "", address: "", phone: "", website: "", logo_url: "", payment_base_url: "", tax_id: "", logo_has_dark_bg: false, is_active: true });
+  };
+
+  const save = async () => {
+    try {
+      setIsUploadingLogo(true);
+      const logoUrl = logoFile ? await uploadManagePayCompanyLogo(logoFile, form.name) : form.logo_url;
+      await saveManagePayCompany({ ...form, logo_url: logoUrl }, editing?.id);
+      reset();
+      await refresh();
+      toast({ title: editing ? "Company updated" : "Company created" });
+    } catch (error) {
+      toast({ title: "Company save failed", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" });
+    } finally {
+      setIsUploadingLogo(false);
+    }
+  };
+
+  const visible = companies.filter((company) => [company.name, company.email, company.phone, company.website].some((value) => includesText(value, search)));
+
+  return (
+    <div className="flex flex-col gap-5">
+      <PageHeader title="Companies" description="Manage invoice brands, contact details, logo URLs, and payment base URLs." />
+      {isAdmin ? (
+        <Card className="card-elevated">
+          <CardHeader><CardTitle className="text-base">{editing ? "Edit company" : "Add company"}</CardTitle></CardHeader>
+          <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <Input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <Input placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+            <Input placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+            <Input placeholder="Website" value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} />
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="managepay-company-logo">Logo</Label>
+              <Input id="managepay-company-logo" type="file" accept="image/*" onChange={(e) => setLogoFile(e.target.files?.[0] ?? null)} />
+            </div>
+            <Input placeholder="Payment base URL" value={form.payment_base_url} onChange={(e) => setForm({ ...form, payment_base_url: e.target.value })} />
+            <Input placeholder="Tax ID" value={form.tax_id} onChange={(e) => setForm({ ...form, tax_id: e.target.value })} />
+            <Input className="md:col-span-2" placeholder="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+            {(logoFile || form.logo_url) ? (
+              <div className="flex items-center gap-3 rounded-lg border border-border bg-secondary/40 p-3 md:col-span-2">
+                <div className={cn("flex h-14 w-24 items-center justify-center rounded-md border border-border bg-card", form.logo_has_dark_bg && "bg-foreground")}>
+                  {logoFile ? (
+                    <img src={URL.createObjectURL(logoFile)} alt="Selected logo preview" className="max-h-12 max-w-20 object-contain" />
+                  ) : form.logo_url ? (
+                    <img src={form.logo_url} alt="Company logo preview" className="max-h-12 max-w-20 object-contain" />
+                  ) : (
+                    <ImagePlus className="h-4 w-4 text-muted-foreground" />
+                  )}
+                </div>
+                <div className="min-w-0 text-sm">
+                  <p className="font-medium">{logoFile?.name || "Current logo"}</p>
+                  <p className="truncate text-xs text-muted-foreground">{logoFile ? "Ready to upload on save" : form.logo_url}</p>
+                </div>
+              </div>
+            ) : null}
+            <div className="flex items-center gap-3">
+              <Switch checked={form.logo_has_dark_bg} onCheckedChange={(checked) => setForm({ ...form, logo_has_dark_bg: checked })} />
+              <Label>Logo needs dark background</Label>
+            </div>
+            <div className="flex items-center gap-3">
+              <Switch checked={form.is_active} onCheckedChange={(checked) => setForm({ ...form, is_active: checked })} />
+              <Label>Active</Label>
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={save} disabled={isUploadingLogo}>{isUploadingLogo ? "Saving..." : editing ? "Update" : "Create"}</Button>
+              {editing ? <Button variant="outline" onClick={reset}>Cancel</Button> : null}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+      <Card className="card-elevated">
+        <CardHeader><SearchInput value={search} onChange={setSearch} /></CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader><TableRow><TableHead>Company</TableHead><TableHead>Payment URL</TableHead><TableHead>Status</TableHead><TableHead className="w-24" /></TableRow></TableHeader>
+            <TableBody>
+              {visible.map((company) => (
+                <TableRow key={company.id}>
+                  <TableCell><div className="font-medium">{company.name}</div><div className="text-xs text-muted-foreground">{company.email}</div></TableCell>
+                  <TableCell>{company.payment_base_url || "Current app origin"}</TableCell>
+                  <TableCell>{company.is_active ? <Badge className="badge-success">Active</Badge> : <Badge variant="outline">Inactive</Badge>}</TableCell>
+                  <TableCell>
+                    {isAdmin ? (
+                      <div className="flex justify-end gap-1">
+                        <Button size="icon" variant="ghost" onClick={() => { setEditing(company); setLogoFile(null); setForm({ name: company.name, email: company.email, address: company.address || "", phone: company.phone || "", website: company.website || "", logo_url: company.logo_url || "", payment_base_url: company.payment_base_url || "", tax_id: company.tax_id || "", logo_has_dark_bg: company.logo_has_dark_bg, is_active: company.is_active }); }}><Pencil className="h-4 w-4" /></Button>
+                        <Button size="icon" variant="ghost" onClick={async () => { if (window.confirm(`Delete ${company.name}?`)) { await deleteManagePayCompany(company.id); await refresh(); } }}><Trash2 className="h-4 w-4" /></Button>
+                      </div>
+                    ) : null}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+export function ManagePayClientsPage() {
+  const [clients, setClients] = useState<ManagePayClient[]>([]);
+  const [search, setSearch] = useState("");
+  const [editing, setEditing] = useState<ManagePayClient | null>(null);
+  const [form, setForm] = useState({ name: "", email: "", company_name: "", phone: "", address: "", notes: "", is_active: true });
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const refresh = () => listManagePayClients().then(setClients);
+  useEffect(() => { void refresh(); }, []);
+
+  const reset = () => {
+    setEditing(null);
+    setForm({ name: "", email: "", company_name: "", phone: "", address: "", notes: "", is_active: true });
+  };
+
+  const save = async () => {
+    if (!user?.id) return;
+    try {
+      await saveManagePayClient({ ...form, user_id: user.id }, editing?.id);
+      reset();
+      await refresh();
+      toast({ title: editing ? "Client updated" : "Client created" });
+    } catch (error) {
+      toast({ title: "Client save failed", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" });
+    }
+  };
+
+  const visible = clients.filter((client) => [client.name, client.email, client.company_name, client.phone, client.address].some((value) => includesText(value, search)));
+
+  return (
+    <div className="flex flex-col gap-5">
+      <PageHeader title="Clients" description="Saved recipients for invoices and payment links." />
+      <Card className="card-elevated">
+        <CardHeader><CardTitle className="text-base">{editing ? "Edit client" : "Add client"}</CardTitle></CardHeader>
+        <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <Input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <Input placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          <Input placeholder="Company name" value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} />
+          <Input placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+          <Input className="md:col-span-2" placeholder="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+          <Textarea className="md:col-span-2" placeholder="Notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+          <div className="flex items-center gap-3">
+            <Switch checked={form.is_active} onCheckedChange={(checked) => setForm({ ...form, is_active: checked })} />
+            <Label>Active</Label>
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={save}>{editing ? "Update" : "Create"}</Button>
+            {editing ? <Button variant="outline" onClick={reset}>Cancel</Button> : null}
+          </div>
+        </CardContent>
+      </Card>
+      <Card className="card-elevated">
+        <CardHeader><SearchInput value={search} onChange={setSearch} /></CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader><TableRow><TableHead>Client</TableHead><TableHead>Contact</TableHead><TableHead>Status</TableHead><TableHead className="w-24" /></TableRow></TableHeader>
+            <TableBody>
+              {visible.map((client) => (
+                <TableRow key={client.id}>
+                  <TableCell><div className="font-medium">{client.name}</div><div className="text-xs text-muted-foreground">{client.company_name || "Individual"}</div></TableCell>
+                  <TableCell><div>{client.email}</div><div className="text-xs text-muted-foreground">{client.phone}</div></TableCell>
+                  <TableCell>{client.is_active ? <Badge className="badge-success">Active</Badge> : <Badge variant="outline">Archived</Badge>}</TableCell>
+                  <TableCell><div className="flex justify-end gap-1"><Button size="icon" variant="ghost" onClick={() => { setEditing(client); setForm({ name: client.name, email: client.email, company_name: client.company_name || "", phone: client.phone || "", address: client.address || "", notes: client.notes || "", is_active: client.is_active }); }}><Pencil className="h-4 w-4" /></Button><Button size="icon" variant="ghost" onClick={async () => { if (window.confirm(`Delete ${client.name}?`)) { await deleteManagePayClient(client.id); await refresh(); } }}><Trash2 className="h-4 w-4" /></Button></div></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+export function ManagePayInvoicesPage() {
+  const [companies, setCompanies] = useState<ManagePayCompany[]>([]);
+  const [clients, setClients] = useState<ManagePayClient[]>([]);
+  const [services, setServices] = useState<ManagePayInvoiceService[]>([]);
+  const [invoices, setInvoices] = useState<ManagePayInvoice[]>([]);
+  const [shareInvoice, setShareInvoice] = useState<ManagePayInvoice | null>(null);
+  const [companyId, setCompanyId] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [invoiceNumber, setInvoiceNumber] = useState(newInvoiceNo());
+  const [dueDate, setDueDate] = useState(format(addDays(new Date(), 14), "yyyy-MM-dd"));
+  const [currency, setCurrency] = useState("GBP");
+  const [taxRate, setTaxRate] = useState("");
+  const [notes, setNotes] = useState("");
+  const [items, setItems] = useState<ManagePayLineItem[]>([newLine()]);
+  const [clientDialogOpen, setClientDialogOpen] = useState(false);
+  const [clientForm, setClientForm] = useState({ name: "", email: "", company_name: "", phone: "", address: "", notes: "" });
+  const [isSavingClient, setIsSavingClient] = useState(false);
+  const { user } = useAuth();
+  const { toast } = useToast();
+
+  const refresh = async () => {
+    const [nextCompanies, nextClients, nextServices, nextInvoices] = await Promise.all([
+      listManagePayCompanies(true),
+      listManagePayClients(),
+      listManagePayServices(),
+      listManagePayInvoices(),
+    ]);
+    setCompanies(nextCompanies);
+    setClients(nextClients.filter((client) => client.is_active));
+    setServices(nextServices);
+    setInvoices(nextInvoices);
+    if (!companyId && nextCompanies[0]) setCompanyId(nextCompanies[0].id);
+    if (!clientId && nextClients[0]) setClientId(nextClients[0].id);
+  };
+
+  useEffect(() => { void refresh(); }, []);
+
+  const selectedCompany = companies.find((company) => company.id === companyId);
+  const selectedClient = clients.find((client) => client.id === clientId);
+  const subtotal = items.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const tax = subtotal * (Number(taxRate || 0) / 100);
+  const total = subtotal + tax;
+
+  const updateItem = (id: string, updates: Partial<ManagePayLineItem>) => {
+    setItems((current) => current.map((item) => {
+      if (item.id !== id) return item;
+      const next = { ...item, ...updates };
+      next.amount = Number(next.quantity || 0) * Number(next.rate || 0);
+      return next;
+    }));
+  };
+
+  const resetClientForm = () => {
+    setClientForm({ name: "", email: "", company_name: "", phone: "", address: "", notes: "" });
+  };
+
+  const createClientFromInvoice = async () => {
+    if (!user?.id) return;
+    if (!clientForm.name.trim() || !clientForm.email.trim()) {
+      toast({ title: "Client name and email are required", variant: "destructive" });
+      return;
+    }
+
+    try {
+      setIsSavingClient(true);
+      const client = await saveManagePayClient({
+        ...clientForm,
+        user_id: user.id,
+        name: clientForm.name.trim(),
+        email: clientForm.email.trim(),
+        is_active: true,
+      });
+      setClients((current) => [client, ...current.filter((entry) => entry.id !== client.id)]);
+      setClientId(client.id);
+      resetClientForm();
+      setClientDialogOpen(false);
+      toast({ title: "Client added and selected" });
+    } catch (error) {
+      toast({ title: "Client save failed", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" });
+    } finally {
+      setIsSavingClient(false);
+    }
+  };
+
+  const saveInvoice = async () => {
+    if (!user?.id || !selectedCompany || !selectedClient) return;
+    const meaningfulItems = items.filter((item) => item.description.trim() && item.amount > 0);
+    if (meaningfulItems.length === 0) {
+      toast({ title: "Add at least one billable line", variant: "destructive" });
+      return;
+    }
+
+    try {
+      const metadata = {
+        company: {
+          id: selectedCompany.id,
+          name: selectedCompany.name,
+          email: selectedCompany.email,
+          address: selectedCompany.address,
+          phone: selectedCompany.phone,
+          website: selectedCompany.website,
+          logoUrl: selectedCompany.logo_url,
+          logoHasDarkBg: selectedCompany.logo_has_dark_bg,
+          paymentBaseUrl: selectedCompany.payment_base_url,
+          taxId: selectedCompany.tax_id,
+        },
+        client: {
+          name: selectedClient.name,
+          email: selectedClient.email,
+          companyName: selectedClient.company_name,
+          address: selectedClient.address,
+        },
+        items: meaningfulItems,
+        subtotal,
+        tax,
+        taxRate: Number(taxRate || 0),
+        total,
+        notes,
+      };
+      const invoice = await createManagePayInvoice({
+        invoice_number: invoiceNumber,
+        seller_id: user.id,
+        client_id: selectedClient.id,
+        client_email: selectedClient.email,
+        amount_in_cents: amountToCents(total),
+        currency: currency.toLowerCase(),
+        description: meaningfulItems[0]?.description || invoiceNumber,
+        due_date: dueDate ? new Date(dueDate).toISOString() : null,
+        metadata,
+      });
+      const withUrl = await updateManagePayInvoice(invoice.id, { metadata: { ...metadata, paymentUrl: getInvoicePaymentUrl({ ...invoice, metadata }) } as any });
+      setShareInvoice(withUrl);
+      setInvoiceNumber(newInvoiceNo());
+      setItems([newLine()]);
+      setNotes("");
+      await refresh();
+      toast({ title: "Invoice saved" });
+    } catch (error) {
+      toast({ title: "Invoice save failed", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" });
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-5">
+      <PageHeader title="Invoice Generator" description="Create branded invoices with saved clients, services, taxes, and public payment links." />
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <Card className="card-elevated">
+          <CardHeader><CardTitle className="text-base">Draft invoice</CardTitle></CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+              <Select value={companyId} onValueChange={setCompanyId}><SelectTrigger><SelectValue placeholder="Company" /></SelectTrigger><SelectContent>{companies.map((company) => <SelectItem key={company.id} value={company.id}>{company.name}</SelectItem>)}</SelectContent></Select>
+              <div className="flex gap-2">
+                <Select value={clientId} onValueChange={setClientId}>
+                  <SelectTrigger className="min-w-0 flex-1"><SelectValue placeholder="Client" /></SelectTrigger>
+                  <SelectContent>{clients.map((client) => <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>)}</SelectContent>
+                </Select>
+                <Button type="button" variant="outline" size="icon" title="Add client" onClick={() => setClientDialogOpen(true)}>
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+              <Input value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} />
+              <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+              <Select value={currency} onValueChange={setCurrency}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{["GBP", "USD", "PKR", "EUR"].map((code) => <SelectItem key={code} value={code}>{code}</SelectItem>)}</SelectContent></Select>
+              <Input type="number" min="0" placeholder="Tax %" value={taxRate} onChange={(e) => setTaxRate(e.target.value)} />
+            </div>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader><TableRow><TableHead className="min-w-[160px]">Service</TableHead><TableHead className="min-w-[260px]">Description</TableHead><TableHead>Qty</TableHead><TableHead>Rate</TableHead><TableHead>Amount</TableHead><TableHead className="w-12" /></TableRow></TableHeader>
+                <TableBody>
+                  {items.map((item) => (
+                    <TableRow key={item.id}>
+                      <TableCell>
+                        <Select
+                          value={item.serviceId || "custom"}
+                          onValueChange={(value) => {
+                            const service = services.find((entry) => entry.id === value);
+                            updateItem(item.id, { serviceId: value === "custom" ? null : value, serviceName: service?.name || null, description: service?.description || item.description, rate: service ? service.default_rate / 100 : item.rate });
+                          }}
+                        >
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent><SelectItem value="custom">Custom</SelectItem>{services.map((service) => <SelectItem key={service.id} value={service.id}>{service.name}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell><Input value={item.description} onChange={(e) => updateItem(item.id, { description: e.target.value })} /></TableCell>
+                      <TableCell><Input className="w-20" type="number" min="0" value={item.quantity} onChange={(e) => updateItem(item.id, { quantity: Number(e.target.value) })} /></TableCell>
+                      <TableCell><Input className="w-28" type="number" min="0" value={item.rate} onChange={(e) => updateItem(item.id, { rate: Number(e.target.value) })} /></TableCell>
+                      <TableCell>{formatManagePayMoney(amountToCents(item.amount), currency)}</TableCell>
+                      <TableCell><Button size="icon" variant="ghost" disabled={items.length === 1} onClick={() => setItems((current) => current.filter((row) => row.id !== item.id))}><Trash2 className="h-4 w-4" /></Button></TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => setItems((current) => [...current, newLine()])}><Plus className="h-4 w-4" />Add line</Button>
+            </div>
+            <Textarea placeholder="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <div className="flex justify-end"><Button onClick={saveInvoice}>Save Invoice</Button></div>
+          </CardContent>
+        </Card>
+        <InvoicePreview company={selectedCompany} client={selectedClient} invoiceNumber={invoiceNumber} dueDate={dueDate} currency={currency} items={items} subtotal={subtotal} tax={tax} total={total} notes={notes} />
+      </div>
+      <Card className="card-elevated">
+        <CardHeader><CardTitle className="text-base">Saved invoices</CardTitle></CardHeader>
+        <CardContent className="p-0"><InvoicesTable invoices={invoices} onRefresh={refresh} onShare={setShareInvoice} /></CardContent>
+      </Card>
+      <ShareDialog invoice={shareInvoice} onOpenChange={(open) => { if (!open) setShareInvoice(null); }} />
+      <Dialog open={clientDialogOpen} onOpenChange={(open) => { setClientDialogOpen(open); if (!open) resetClientForm(); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Add client</DialogTitle></DialogHeader>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="invoice-client-name">Name</Label>
+              <Input id="invoice-client-name" value={clientForm.name} onChange={(e) => setClientForm({ ...clientForm, name: e.target.value })} />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="invoice-client-email">Email</Label>
+              <Input id="invoice-client-email" type="email" value={clientForm.email} onChange={(e) => setClientForm({ ...clientForm, email: e.target.value })} />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="invoice-client-company">Company</Label>
+              <Input id="invoice-client-company" value={clientForm.company_name} onChange={(e) => setClientForm({ ...clientForm, company_name: e.target.value })} />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="invoice-client-phone">Phone</Label>
+              <Input id="invoice-client-phone" value={clientForm.phone} onChange={(e) => setClientForm({ ...clientForm, phone: e.target.value })} />
+            </div>
+            <div className="flex flex-col gap-2 sm:col-span-2">
+              <Label htmlFor="invoice-client-address">Address</Label>
+              <Input id="invoice-client-address" value={clientForm.address} onChange={(e) => setClientForm({ ...clientForm, address: e.target.value })} />
+            </div>
+            <div className="flex flex-col gap-2 sm:col-span-2">
+              <Label htmlFor="invoice-client-notes">Notes</Label>
+              <Textarea id="invoice-client-notes" value={clientForm.notes} onChange={(e) => setClientForm({ ...clientForm, notes: e.target.value })} />
+            </div>
+            <div className="flex justify-end gap-2 sm:col-span-2">
+              <Button type="button" variant="outline" onClick={() => setClientDialogOpen(false)}>Cancel</Button>
+              <Button type="button" onClick={createClientFromInvoice} disabled={isSavingClient}>{isSavingClient ? "Saving..." : "Add and select"}</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function InvoicePreview({ company, client, invoiceNumber, dueDate, currency, items, subtotal, tax, total, notes }: { company?: ManagePayCompany; client?: ManagePayClient; invoiceNumber: string; dueDate: string; currency: string; items: ManagePayLineItem[]; subtotal: number; tax: number; total: number; notes: string }) {
+  return (
+    <Card className="card-elevated">
+      <CardHeader><CardTitle className="text-base">Preview</CardTitle></CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-lg font-semibold">{company?.name || "Company"}</p>
+            <p className="text-sm text-muted-foreground">{company?.email}</p>
+            <p className="text-sm text-muted-foreground">{company?.address}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-sm text-muted-foreground">Invoice</p>
+            <p className="font-semibold">{invoiceNumber}</p>
+            <p className="text-xs text-muted-foreground">Due {dueDate}</p>
+          </div>
+        </div>
+        <div className="surface-tile">
+          <p className="text-xs text-muted-foreground">Bill to</p>
+          <p className="font-medium">{client?.name || "Client"}</p>
+          <p className="text-sm text-muted-foreground">{client?.email}</p>
+        </div>
+        <div className="flex flex-col gap-2">
+          {items.filter((item) => item.description).map((item) => (
+            <div key={item.id} className="flex justify-between gap-3 text-sm">
+              <span>{item.description}</span>
+              <span>{formatManagePayMoney(amountToCents(item.amount), currency)}</span>
+            </div>
+          ))}
+        </div>
+        <div className="border-t pt-3 text-sm">
+          <div className="flex justify-between"><span>Subtotal</span><span>{formatManagePayMoney(amountToCents(subtotal), currency)}</span></div>
+          <div className="flex justify-between"><span>Tax</span><span>{formatManagePayMoney(amountToCents(tax), currency)}</span></div>
+          <div className="mt-2 flex justify-between text-lg font-semibold"><span>Total</span><span>{formatManagePayMoney(amountToCents(total), currency)}</span></div>
+        </div>
+        {notes ? <p className="text-sm text-muted-foreground">{notes}</p> : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function InvoicesTable({ invoices, onRefresh, onShare }: { invoices: ManagePayInvoice[]; onRefresh: () => void | Promise<void>; onShare?: (invoice: ManagePayInvoice) => void }) {
+  const { toast } = useToast();
+  return (
+    <div className="overflow-x-auto">
+      <Table>
+        <TableHeader><TableRow><TableHead>No</TableHead><TableHead>Client</TableHead><TableHead>Company</TableHead><TableHead>Total</TableHead><TableHead>Status</TableHead><TableHead className="w-36" /></TableRow></TableHeader>
+        <TableBody>
+          {invoices.map((invoice) => {
+            const company = invoice.metadata?.company as { name?: string } | undefined;
+            const client = invoice.metadata?.client as { name?: string } | undefined;
+            const paymentUrl = getInvoicePaymentUrl(invoice);
+            return (
+              <TableRow key={invoice.id}>
+                <TableCell>{invoice.invoice_number}</TableCell>
+                <TableCell>{client?.name || invoice.client_email}</TableCell>
+                <TableCell>{company?.name || "Company"}</TableCell>
+                <TableCell>{formatManagePayMoney(invoice.amount_in_cents, invoice.currency)}</TableCell>
+                <TableCell><StatusBadge status={invoice.status} /></TableCell>
+                <TableCell>
+                  <div className="flex justify-end gap-1">
+                    <Button size="icon" variant="ghost" title="View as client" onClick={() => window.open(getInvoiceClientPreviewUrl(invoice), "_blank", "noopener,noreferrer")}><Eye className="h-4 w-4" /></Button>
+                    <Button size="icon" variant="ghost" onClick={() => copyText(paymentUrl, "Payment link copied", toast)}><Copy className="h-4 w-4" /></Button>
+                    <Button size="icon" variant="ghost" onClick={() => onShare?.(invoice)}><QrCode className="h-4 w-4" /></Button>
+                    {invoice.status === "pending" ? <Button size="icon" variant="ghost" onClick={async () => { await deleteManagePayInvoice(invoice.id); await onRefresh(); }}><Trash2 className="h-4 w-4" /></Button> : null}
+                  </div>
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+function ShareDialog({ invoice, onOpenChange }: { invoice: ManagePayInvoice | null; onOpenChange: (open: boolean) => void }) {
+  const { toast } = useToast();
+  if (!invoice) return null;
+  const link = getInvoicePaymentUrl(invoice);
+  const previewLink = getInvoiceClientPreviewUrl(invoice);
+  const subject = encodeURIComponent(`Invoice ${invoice.invoice_number}`);
+  const body = encodeURIComponent(`Please use this link to view and pay invoice ${invoice.invoice_number}: ${link}`);
+  return (
+    <Dialog open={!!invoice} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Share invoice {invoice.invoice_number}</DialogTitle></DialogHeader>
+        <div className="flex flex-col gap-3">
+          <Input readOnly value={link} />
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            <Button variant="outline" onClick={() => window.open(previewLink, "_blank", "noopener,noreferrer")}><Eye className="h-4 w-4" />Preview</Button>
+            <Button variant="outline" onClick={() => copyText(link, "Payment link copied", toast)}><Copy className="h-4 w-4" />Copy</Button>
+            <Button variant="outline" onClick={() => window.open(`mailto:${invoice.client_email}?subject=${subject}&body=${body}`)}><Mail className="h-4 w-4" />Email</Button>
+            <Button variant="outline" onClick={() => window.open(`https://wa.me/?text=${body}`)}><MessageCircle className="h-4 w-4" />WhatsApp</Button>
+            <Button variant="outline" onClick={() => window.open(`sms:?&body=${body}`)}><MessageCircle className="h-4 w-4" />SMS</Button>
+          </div>
+          <div className="surface-tile text-center text-sm text-muted-foreground">QR/PDF export is ready for provider wiring; this first version keeps the link authoritative.</div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function ManagePayTerminalPage() {
+  const [transactions, setTransactions] = useState<ManagePayTerminalTransaction[]>([]);
+  const [form, setForm] = useState({ amount: "", currency: "GBP", description: "", customer_email: "", customer_name: "", customer_phone: "", payment_method: "card" as ManagePayPaymentMethod });
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const refresh = () => listManagePayTerminalTransactions().then(setTransactions);
+  useEffect(() => { void refresh(); }, []);
+
+  const amount = Number(form.amount || 0);
+  const fee = amount * 0.029 + 0.2;
+  const total = amount + fee;
+
+  const processPayment = async () => {
+    if (!user?.id || amount <= 0) return;
+    try {
+      await createManagePayTerminalTransaction({
+        user_id: user.id,
+        amount_in_cents: amountToCents(amount),
+        fee_in_cents: amountToCents(fee),
+        total_in_cents: amountToCents(total),
+        currency: form.currency.toLowerCase(),
+        description: form.description,
+        customer_email: form.customer_email,
+        customer_name: form.customer_name,
+        customer_phone: form.customer_phone,
+        payment_method: form.payment_method,
+        status: form.payment_method === "card" ? "pending" : "completed",
+        provider_reference: null,
+        metadata: { simulated: form.payment_method !== "card" },
+      });
+      await refresh();
+      toast({ title: form.payment_method === "card" ? "Card intent placeholder saved" : "Transaction completed" });
+    } catch (error) {
+      toast({ title: "Terminal failed", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" });
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-5">
+      <PageHeader title="Payment Terminal" description="Capture one-off payment details and prepare card, mobile, QR, or payment-link flows." />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[420px_minmax(0,1fr)]">
+        <Card className="card-elevated">
+          <CardHeader><CardTitle className="text-base">New terminal payment</CardTitle></CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <Input type="number" min="0" placeholder="Amount" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+            <Select value={form.currency} onValueChange={(currency) => setForm({ ...form, currency })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{["GBP", "USD", "PKR", "EUR"].map((code) => <SelectItem key={code} value={code}>{code}</SelectItem>)}</SelectContent></Select>
+            <Textarea placeholder="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+            <Input placeholder="Customer email" value={form.customer_email} onChange={(e) => setForm({ ...form, customer_email: e.target.value })} />
+            <Input placeholder="Customer name" value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} />
+            <Input placeholder="Customer phone" value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} />
+            <Select value={form.payment_method} onValueChange={(payment_method: ManagePayPaymentMethod) => setForm({ ...form, payment_method })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="card">Card</SelectItem><SelectItem value="mobile">Mobile payment</SelectItem><SelectItem value="qr">QR payment</SelectItem><SelectItem value="payment_link">Payment link</SelectItem></SelectContent></Select>
+            <div className="surface-tile text-sm">
+              <div className="flex justify-between"><span>Processing fee</span><span>{formatManagePayMoney(amountToCents(fee), form.currency)}</span></div>
+              <div className="flex justify-between font-semibold"><span>Total</span><span>{formatManagePayMoney(amountToCents(total), form.currency)}</span></div>
+            </div>
+            <Button onClick={processPayment}>Process</Button>
+          </CardContent>
+        </Card>
+        <Card className="card-elevated">
+          <CardHeader><CardTitle className="text-base">Terminal history</CardTitle></CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Customer</TableHead><TableHead>Method</TableHead><TableHead>Total</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
+              <TableBody>{transactions.map((transaction) => <TableRow key={transaction.id}><TableCell>{format(new Date(transaction.created_at), "PP p")}</TableCell><TableCell>{transaction.customer_name || transaction.customer_email || "Walk-in"}</TableCell><TableCell>{transaction.payment_method}</TableCell><TableCell>{formatManagePayMoney(transaction.total_in_cents, transaction.currency)}</TableCell><TableCell><StatusBadge status={transaction.status} /></TableCell></TableRow>)}</TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+export function ManagePaySettingsPage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const [services, setServices] = useState<ManagePayInvoiceService[]>([]);
+  const [accessRows, setAccessRows] = useState<ManagePayAccessCandidate[]>([]);
+  const [serviceForm, setServiceForm] = useState({ name: "", description: "", default_rate: "" });
+  const [search, setSearch] = useState("");
+  const { toast } = useToast();
+
+  const refresh = async () => {
+    const [nextServices, nextAccess] = await Promise.all([
+      listManagePayServices(),
+      isAdmin ? listManagePayAccessCandidates() : Promise.resolve([]),
+    ]);
+    setServices(nextServices);
+    setAccessRows(nextAccess);
+  };
+  useEffect(() => { void refresh(); }, [isAdmin]);
+
+  const saveService = async () => {
+    try {
+      await saveManagePayService({ name: serviceForm.name, description: serviceForm.description, default_rate: amountToCents(Number(serviceForm.default_rate || 0)) });
+      setServiceForm({ name: "", description: "", default_rate: "" });
+      await refresh();
+      toast({ title: "Service saved" });
+    } catch (error) {
+      toast({ title: "Service save failed", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" });
+    }
+  };
+
+  const setOverride = async (employeeId: string, allowed: boolean | null) => {
+    try {
+      if (allowed === null) await clearManagePayAccessOverride(employeeId);
+      else await saveManagePayAccessOverride(employeeId, allowed);
+      await refresh();
+      toast({ title: "Access updated" });
+    } catch (error) {
+      toast({ title: "Access update failed", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" });
+    }
+  };
+
+  const filteredAccessRows = accessRows.filter((row) => [row.full_name, row.employee_code, row.department_name].some((value) => includesText(value, search)));
+
+  return (
+    <div className="flex flex-col gap-5">
+      <PageHeader title="ManagePay Settings" description="Control reusable services and employee access to the payment terminal module." />
+      <Tabs defaultValue="services">
+        <TabsList><TabsTrigger value="services">Services</TabsTrigger>{isAdmin ? <TabsTrigger value="access">Access</TabsTrigger> : null}</TabsList>
+        <TabsContent value="services">
+          <Card className="card-elevated">
+            <CardHeader><CardTitle className="text-base">Invoice services</CardTitle></CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              {isAdmin ? (
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                  <Input placeholder="Service name" value={serviceForm.name} onChange={(e) => setServiceForm({ ...serviceForm, name: e.target.value })} />
+                  <Input placeholder="Description" value={serviceForm.description} onChange={(e) => setServiceForm({ ...serviceForm, description: e.target.value })} />
+                  <Input type="number" min="0" placeholder="Default rate" value={serviceForm.default_rate} onChange={(e) => setServiceForm({ ...serviceForm, default_rate: e.target.value })} />
+                  <Button onClick={saveService}>Add Service</Button>
+                </div>
+              ) : null}
+              <Table>
+                <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Description</TableHead><TableHead>Default rate</TableHead><TableHead className="w-16" /></TableRow></TableHeader>
+                <TableBody>{services.map((service) => <TableRow key={service.id}><TableCell>{service.name}</TableCell><TableCell>{service.description}</TableCell><TableCell>{formatManagePayMoney(service.default_rate)}</TableCell><TableCell>{isAdmin ? <Button size="icon" variant="ghost" onClick={async () => { await deleteManagePayService(service.id); await refresh(); }}><Trash2 className="h-4 w-4" /></Button> : null}</TableCell></TableRow>)}</TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        {isAdmin ? (
+          <TabsContent value="access">
+            <Card className="card-elevated">
+              <CardHeader className="flex flex-col gap-3"><CardTitle className="text-base">Employee ManagePay access</CardTitle><SearchInput value={search} onChange={setSearch} /></CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader><TableRow><TableHead>Employee</TableHead><TableHead>Department</TableHead><TableHead>Effective</TableHead><TableHead>Override</TableHead><TableHead className="w-[260px]">Action</TableHead></TableRow></TableHeader>
+                  <TableBody>
+                    {filteredAccessRows.map((row) => (
+                      <TableRow key={row.employee_id}>
+                        <TableCell><div className="font-medium">{row.full_name}</div><div className="text-xs text-muted-foreground">{row.employee_code}</div></TableCell>
+                        <TableCell>{row.department_name || "Unassigned"}</TableCell>
+                        <TableCell>{row.effective_access ? <Badge className="badge-success">Allowed</Badge> : <Badge variant="outline">Blocked</Badge>}</TableCell>
+                        <TableCell>{row.override_allowed === null ? "Default blocked" : row.override_allowed ? "Explicit allow" : "Explicit deny"}</TableCell>
+                        <TableCell className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => setOverride(row.employee_id, true)}>Allow</Button><Button size="sm" variant="outline" onClick={() => setOverride(row.employee_id, false)}>Deny</Button><Button size="sm" variant="ghost" onClick={() => setOverride(row.employee_id, null)}>Default</Button></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        ) : null}
+      </Tabs>
+    </div>
+  );
+}
+
+export function ManagePayClientPreviewPage() {
+  const { invoiceId } = useParams();
+  const [invoice, setInvoice] = useState<ManagePayInvoice | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!invoiceId) return;
+    void getPublicManagePayInvoice(invoiceId)
+      .then((next) => {
+        setInvoice(next);
+        setError(next ? "" : "Invoice not found");
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "Invoice not found"))
+      .finally(() => setLoading(false));
+  }, [invoiceId]);
+
+  if (loading) {
+    return (
+      <Card className="card-elevated">
+        <CardContent className="p-6 text-sm text-muted-foreground">Loading client preview...</CardContent>
+      </Card>
+    );
+  }
+
+  if (error || !invoice) {
+    return (
+      <Card className="card-elevated">
+        <CardContent className="p-6">
+          <h1 className="text-xl font-semibold">Invoice unavailable</h1>
+          <p className="mt-2 text-sm text-muted-foreground">{error || "This invoice could not be loaded."}</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <PageHeader title="Client View" description="Internal preview of the public invoice payment page." />
+      <div className="overflow-hidden rounded-lg border border-border">
+        <InvoicePaymentView invoice={invoice} />
+      </div>
+    </div>
+  );
+}

@@ -8,6 +8,7 @@ import {
   LogOut,
   Briefcase,
   Calculator,
+  WalletCards,
 } from 'lucide-react';
 import {
   Sheet,
@@ -22,6 +23,7 @@ import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { useAuth } from '@/hooks/useAuth';
 import { canAccessFlowMath } from '@/lib/flowmath';
+import { canAccessManagePay } from '@/lib/managepay';
 import { useEffect } from 'react';
 
 const mainNavItems = [
@@ -46,6 +48,7 @@ export function EmployeeBottomNav() {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [hasFlowMathAccess, setHasFlowMathAccess] = useState(false);
+  const [hasManagePayAccess, setHasManagePayAccess] = useState(false);
 
   const handleLogout = async () => {
     await signOut();
@@ -56,9 +59,19 @@ export function EmployeeBottomNav() {
   useEffect(() => {
     let mounted = true;
     if (!user?.id) return;
-    canAccessFlowMath(user.id)
-      .then((allowed) => mounted && setHasFlowMathAccess(allowed))
-      .catch(() => mounted && setHasFlowMathAccess(false));
+    Promise.all([canAccessFlowMath(user.id), canAccessManagePay(user.id)])
+      .then(([flowMathAllowed, managePayAllowed]) => {
+        if (mounted) {
+          setHasFlowMathAccess(flowMathAllowed);
+          setHasManagePayAccess(managePayAllowed);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setHasFlowMathAccess(false);
+          setHasManagePayAccess(false);
+        }
+      });
     return () => {
       mounted = false;
     };
@@ -127,6 +140,16 @@ export function EmployeeBottomNav() {
                 >
                   <Calculator className="h-4 w-4" />
                   <span>FlowMath</span>
+                </Link>
+              ) : null}
+              {hasManagePayAccess ? (
+                <Link
+                  to="/managepay/dashboard"
+                  onClick={() => setOpen(false)}
+                  className="flex items-center gap-2 p-2.5 rounded-lg text-xs font-medium transition-colors bg-muted text-foreground hover:bg-muted/80"
+                >
+                  <WalletCards className="h-4 w-4" />
+                  <span>ManagePay</span>
                 </Link>
               ) : null}
             </div>
