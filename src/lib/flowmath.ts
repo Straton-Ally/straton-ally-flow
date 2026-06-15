@@ -109,6 +109,15 @@ export interface FlowMathPayrollItem {
   leave_days: number;
   total_work_minutes: number;
   notes: string | null;
+  late_days: number;
+  half_days: number;
+  absent_equivalents: number;
+  attendance_deduction: number;
+  attendance_details: {
+    period_days?: number;
+    per_day_salary?: number;
+    penalty_rules?: string;
+  } | null;
   employee?: {
     employee_id: string;
     designation: string | null;
@@ -465,6 +474,11 @@ export async function createPayrollRun(periodStart: string, periodEnd: string) {
   if (error) throw error;
 }
 
+export async function deletePayrollRun(id: string) {
+  const { error } = await db.rpc("delete_flowmath_payroll_run", { _payroll_run_id: id });
+  if (error) throw error;
+}
+
 export async function updatePayrollItem(id: string, payload: Pick<FlowMathPayrollItem, "allowances" | "deductions" | "notes">) {
   const net_salary = Number(payload.allowances || 0) - Number(payload.deductions || 0);
   const { data: current, error: currentError } = await db.from("flowmath_payroll_items").select("base_salary,payroll_run_id").eq("id", id).single();
@@ -497,4 +511,38 @@ export async function getFlowMathDashboard() {
   ]);
   const lines = await listJournalLines();
   return { settings, accounts, journals, docs, payrollRuns, lines };
+}
+
+export interface EmployeeAttendanceDetail {
+  id: string;
+  date: string;
+  status: string;
+  in_time: string | null;
+  out_time: string | null;
+  total_work_minutes: number | null;
+  break_total_minutes: number;
+  is_late: boolean;
+  late_minutes: number;
+  scheduled_start_time: string | null;
+  scheduled_end_time: string | null;
+  notes: string | null;
+}
+
+export async function getEmployeeAttendanceForPeriod(
+  employeeId: string,
+  periodStart: string,
+  periodEnd: string,
+): Promise<EmployeeAttendanceDetail[]> {
+  const { data, error } = await db
+    .from("attendance")
+    .select(
+      "id,date,status,in_time,out_time,total_work_minutes,break_total_minutes,is_late,late_minutes,scheduled_start_time,scheduled_end_time,notes",
+    )
+    .eq("employee_id", employeeId)
+    .gte("date", periodStart)
+    .lte("date", periodEnd)
+    .order("date", { ascending: true });
+
+  if (error) throw error;
+  return (data ?? []) as EmployeeAttendanceDetail[];
 }

@@ -4,6 +4,7 @@ import { endOfMonth, format, startOfMonth } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -11,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Download, Pencil, Search, Trash2, X } from "lucide-react";
+import { Download, Eye, Pencil, Search, Trash2, X } from "lucide-react";
 import {
   createAccount,
   createDocument,
@@ -22,6 +23,8 @@ import {
   deleteCounterparty,
   deleteDocument,
   deleteJournalEntry,
+  deletePayrollRun,
+  EmployeeAttendanceDetail,
   FlowMathAccount,
   FlowMathAccessCandidate,
   FlowMathCounterparty,
@@ -32,6 +35,7 @@ import {
   FlowMathJournalLine,
   FlowMathPayrollItem,
   FlowMathPayrollRun,
+  getEmployeeAttendanceForPeriod,
   getFlowMathDashboard,
   getFlowMathSettings,
   listAccounts,
@@ -56,7 +60,7 @@ import {
   updatePayrollItem,
   unpostManualJournalEntry,
 } from "@/lib/flowmath";
-import { formatFlowMathCurrency, getJournalTotals, isBalancedJournal } from "@/lib/flowmath-calculations";
+import { formatFlowMathCurrency, formatWorkMinutes, getAttendanceStatusBadgeClass, getAttendanceStatusLabel, getJournalTotals, isBalancedJournal } from "@/lib/flowmath-calculations";
 
 type JournalDraftLine = { account_id: string; description: string; debit: number; credit: number };
 
@@ -703,6 +707,126 @@ export function FlowMathExpensesPage() { return <DocumentPage documentType="expe
 export function FlowMathInvoicesPage() { return <DocumentPage documentType="invoice" />; }
 export function FlowMathBillsPage() { return <DocumentPage documentType="bill" />; }
 
+function PayrollAttendanceDialog({
+  employeeId,
+  employeeLabel,
+  periodStart,
+  periodEnd,
+  open,
+  onOpenChange,
+  money,
+}: {
+  employeeId: string;
+  employeeLabel: string;
+  periodStart: string;
+  periodEnd: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  money: (amount: number) => string;
+}) {
+  const [attendance, setAttendance] = useState<EmployeeAttendanceDetail[]>([]);
+  const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    if (!open || !employeeId) return;
+    setLoading(true);
+    getEmployeeAttendanceForPeriod(employeeId, periodStart, periodEnd)
+      .then(setAttendance)
+      .catch((error) => toast({ title: "Failed to load attendance", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" }))
+      .finally(() => setLoading(false));
+  }, [open, employeeId, periodStart, periodEnd, toast]);
+
+  const totals = useMemo(() => {
+    return attendance.reduce(
+      (acc, day) => {
+        if (day.status === "present") acc.present++;
+        else if (day.status === "late_day") acc.late++;
+        else if (day.status === "half_day") acc.half++;
+        else if (day.status === "absent") acc.absent++;
+        else if (day.status === "leave") acc.leave++;
+        acc.workMinutes += day.total_work_minutes ?? 0;
+        return acc;
+      },
+      { present: 0, late: 0, half: 0, absent: 0, leave: 0, workMinutes: 0 },
+    );
+  }, [attendance]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Attendance Breakdown – {employeeLabel}</DialogTitle>
+          <p className="text-sm text-muted-foreground">
+            {periodStart} to {periodEnd} · {attendance.length} days
+          </p>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="py-8 text-center text-muted-foreground">Loading attendance…</div>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-6">
+              <Card className="bg-green-50"><CardContent className="p-3"><p className="text-xs text-muted-foreground">Present</p><p className="text-lg font-semibold">{totals.present}</p></CardContent></Card>
+              <Card className="bg-amber-50"><CardContent className="p-3"><p className="text-xs text-muted-foreground">Late Days</p><p className="text-lg font-semibold">{totals.late}</p></CardContent></Card>
+              <Card className="bg-orange-50"><CardContent className="p-3"><p className="text-xs text-muted-foreground">Half Days</p><p className="text-lg font-semibold">{totals.half}</p></CardContent></Card>
+              <Card className="bg-red-50"><CardContent className="p-3"><p className="text-xs text-muted-foreground">Absent</p><p className="text-lg font-semibold">{totals.absent}</p></CardContent></Card>
+              <Card className="bg-blue-50"><CardContent className="p-3"><p className="text-xs text-muted-foreground">Leave</p><p className="text-lg font-semibold">{totals.leave}</p></CardContent></Card>
+              <Card className="bg-gray-50"><CardContent className="p-3"><p className="text-xs text-muted-foreground">Total Hours</p><p className="text-lg font-semibold">{formatWorkMinutes(totals.workMinutes)}</p></CardContent></Card>
+            </div>
+
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Check In</TableHead>
+                  <TableHead>Check Out</TableHead>
+                  <TableHead>Work Time</TableHead>
+                  <TableHead>Scheduled</TableHead>
+                  <TableHead>Late</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {attendance.map((day) => (
+                  <TableRow key={day.id}>
+                    <TableCell>{day.date}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className={getAttendanceStatusBadgeClass(day.status)}>
+                        {getAttendanceStatusLabel(day.status)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{day.in_time ?? "—"}</TableCell>
+                    <TableCell>{day.out_time ?? "—"}</TableCell>
+                    <TableCell>{formatWorkMinutes(day.total_work_minutes)}</TableCell>
+                    <TableCell>
+                      {day.scheduled_start_time ?? "—"} – {day.scheduled_end_time ?? "—"}
+                    </TableCell>
+                    <TableCell>
+                      {day.is_late ? (
+                        <span className="text-amber-700 font-medium">{day.late_minutes}m</span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {attendance.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center text-muted-foreground py-4">
+                      No attendance records found for this period.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function FlowMathPayrollPage() {
   const [runs, setRuns] = useState<FlowMathPayrollRun[]>([]);
   const [items, setItems] = useState<FlowMathPayrollItem[]>([]);
@@ -710,6 +834,7 @@ export function FlowMathPayrollPage() {
   const [search, setSearch] = useState("");
   const [periodStart, setPeriodStart] = useState(format(startOfMonth(new Date()), "yyyy-MM-dd"));
   const [periodEnd, setPeriodEnd] = useState(format(endOfMonth(new Date()), "yyyy-MM-dd"));
+  const [detailItem, setDetailItem] = useState<FlowMathPayrollItem | null>(null);
   const { toast } = useToast();
   const money = useMoney();
   const selectedRun = runs.find((run) => run.id === selectedRunId);
@@ -735,39 +860,205 @@ export function FlowMathPayrollPage() {
   }, []);
   useEffect(() => { if (selectedRunId) listPayrollItems(selectedRunId).then(setItems); }, [selectedRunId]);
 
-  const createRun = async () => { try { await createPayrollRun(periodStart, periodEnd); await refresh(); toast({ title: "Payroll run created" }); } catch (error) { toast({ title: "Payroll failed", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" }); } };
-  const postRun = async () => { if (!selectedRunId) return; try { await postPayrollRun(selectedRunId); await refresh(); toast({ title: "Payroll posted" }); } catch (error) { toast({ title: "Post failed", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" }); } };
-  const payRun = async () => { if (!selectedRunId) return; try { await markPayrollPaid(selectedRunId); await refresh(); toast({ title: "Payroll marked paid" }); } catch (error) { toast({ title: "Payment failed", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" }); } };
+  const getErrorText = (error: unknown) => {
+    if (error && typeof error === "object" && "message" in error) return String((error as { message: unknown }).message);
+    if (error instanceof Error) return error.message;
+    return "Unknown error";
+  };
+
+  const createRun = async () => {
+    try {
+      await createPayrollRun(periodStart, periodEnd);
+      await refresh();
+      toast({ title: "Payroll run created" });
+    } catch (error) {
+      toast({ title: "Payroll failed", description: getErrorText(error), variant: "destructive" });
+    }
+  };
+  const postRun = async () => {
+    if (!selectedRunId) return;
+    try {
+      await postPayrollRun(selectedRunId);
+      await refresh();
+      toast({ title: "Payroll posted" });
+    } catch (error) {
+      toast({ title: "Post failed", description: getErrorText(error), variant: "destructive" });
+    }
+  };
+  const payRun = async () => {
+    if (!selectedRunId) return;
+    try {
+      await markPayrollPaid(selectedRunId);
+      await refresh();
+      toast({ title: "Payroll marked paid" });
+    } catch (error) {
+      toast({ title: "Payment failed", description: getErrorText(error), variant: "destructive" });
+    }
+  };
+  const deleteRun = async () => {
+    if (!selectedRunId) return;
+    if (!window.confirm("Delete this payroll run? This cannot be undone.")) return;
+    try {
+      await deletePayrollRun(selectedRunId);
+      setSelectedRunId("");
+      await refresh();
+      toast({ title: "Payroll run deleted" });
+    } catch (error) {
+      toast({ title: "Delete failed", description: getErrorText(error), variant: "destructive" });
+    }
+  };
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Payroll Management" description="Create salary runs from FlowHR salaries, adjust manually, post payable, and mark paid." />
-      <Card className="card-elevated"><CardContent className="flex flex-col gap-3 p-4 md:flex-row md:items-center"><Input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} /><Input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} /><Button onClick={createRun}>Create Run</Button><Select value={selectedRunId} onValueChange={setSelectedRunId}><SelectTrigger className="md:w-72"><SelectValue placeholder="Select run" /></SelectTrigger><SelectContent>{runs.map((run) => <SelectItem key={run.id} value={run.id}>{run.run_no} ({run.status})</SelectItem>)}</SelectContent></Select>{selectedRun?.status === "draft" ? <Button onClick={postRun}>Post Payroll</Button> : null}{selectedRun?.status === "posted" ? <Button onClick={payRun}>Mark Paid</Button> : null}</CardContent></Card>
-      {selectedRun ? <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[["Gross", selectedRun.gross_amount], ["Allowances", selectedRun.allowance_amount], ["Deductions", selectedRun.deduction_amount], ["Net", selectedRun.net_amount]].map(([label, value]) => <Card key={label as string} className="card-elevated"><CardContent className="p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="text-xl font-semibold">{money(Number(value))}</p></CardContent></Card>)}</div> : null}
+      <PageHeader title="Payroll Management" description="Create salary runs from FlowHR salaries with attendance-based deductions. Post payable and mark paid." />
+      <Card className="card-elevated"><CardContent className="flex flex-col gap-3 p-4 md:flex-row md:items-center"><Input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} /><Input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} /><Button onClick={createRun}>Create Run</Button><Select value={selectedRunId} onValueChange={setSelectedRunId}><SelectTrigger className="md:w-72"><SelectValue placeholder="Select run" /></SelectTrigger><SelectContent>{runs.map((run) => <SelectItem key={run.id} value={run.id}>{run.run_no} ({run.status})</SelectItem>)}</SelectContent></Select>{selectedRun?.status === "draft" ? <Button onClick={postRun}>Post Payroll</Button> : null}{selectedRun?.status === "posted" ? <Button onClick={payRun}>Mark Paid</Button> : null}{selectedRun && ["draft", "void"].includes(selectedRun.status) ? <Button variant="destructive" onClick={deleteRun}><Trash2 className="mr-2 h-4 w-4" />Delete</Button> : null}</CardContent></Card>
+      {selectedRun ? (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+          {[
+            ["Gross", selectedRun.gross_amount],
+            ["Allowances", selectedRun.allowance_amount],
+            ["Deductions", selectedRun.deduction_amount],
+            ["Net", selectedRun.net_amount],
+            ["Period", `${selectedRun.period_start} to ${selectedRun.period_end}`],
+            ["Status", selectedRun.status],
+          ].map(([label, value]) => (
+            <Card key={label as string} className="card-elevated">
+              <CardContent className="p-4">
+                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className="text-xl font-semibold">{typeof value === "number" ? money(Number(value)) : value}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : null}
+
       <Card className="card-elevated">
         <CardHeader>
           <TableToolbar
             search={search}
             onSearch={setSearch}
-            onExport={() => exportCsv("flowmath-payroll-items.csv", ["Employee", "Base", "Present", "Absent", "Allowances", "Deductions", "Net", "Notes"], filteredItems.map((item) => [item.employee?.profile?.full_name || item.employee?.employee_id || item.employee_id, item.base_salary, item.present_days, item.absent_days, item.allowances, item.deductions, item.net_salary, item.notes]))}
+            onExport={() => exportCsv("flowmath-payroll-items.csv", ["Employee", "Base", "Present", "Late", "Half", "Absent", "Leave", "Equiv Absent", "Att. Deduction", "Allowances", "Deductions", "Net", "Notes"], filteredItems.map((item) => [item.employee?.profile?.full_name || item.employee?.employee_id || item.employee_id, item.base_salary, item.present_days, item.late_days, item.half_days, item.absent_days, item.leave_days, item.absent_equivalents, item.attendance_deduction, item.allowances, item.deductions, item.net_salary, item.notes]))}
           />
         </CardHeader>
-        <CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Employee</TableHead><TableHead>Base</TableHead><TableHead>Attendance</TableHead><TableHead>Allowances</TableHead><TableHead>Deductions</TableHead><TableHead>Net</TableHead><TableHead>Notes</TableHead><TableHead /></TableRow></TableHeader><TableBody>{filteredItems.map((item) => <PayrollItemRow key={item.id} item={item} money={money} editable={selectedRun?.status === "draft"} onSaved={refresh} />)}</TableBody></Table></CardContent>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="min-w-[140px]">Employee</TableHead>
+                  <TableHead>Base</TableHead>
+                  <TableHead className="min-w-[180px]">Attendance</TableHead>
+                  <TableHead>Att. Deduction</TableHead>
+                  <TableHead>Allowances</TableHead>
+                  <TableHead>Deductions</TableHead>
+                  <TableHead>Net</TableHead>
+                  <TableHead className="w-24" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredItems.map((item) => (
+                  <PayrollItemRow
+                    key={item.id}
+                    item={item}
+                    money={money}
+                    editable={selectedRun?.status === "draft"}
+                    onSaved={refresh}
+                    onViewAttendance={() => setDetailItem(item)}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
       </Card>
+
+      {detailItem && selectedRun && (
+        <PayrollAttendanceDialog
+          employeeId={detailItem.employee_id}
+          employeeLabel={detailItem.employee?.profile?.full_name || detailItem.employee?.employee_id || detailItem.employee_id}
+          periodStart={selectedRun.period_start}
+          periodEnd={selectedRun.period_end}
+          open={!!detailItem}
+          onOpenChange={(open) => { if (!open) setDetailItem(null); }}
+          money={money}
+        />
+      )}
     </div>
   );
 }
 
-function PayrollItemRow({ item, money, editable, onSaved }: { item: FlowMathPayrollItem; money: (amount: number) => string; editable?: boolean; onSaved: () => void }) {
+function PayrollItemRow({
+  item,
+  money,
+  editable,
+  onSaved,
+  onViewAttendance,
+}: {
+  item: FlowMathPayrollItem;
+  money: (amount: number) => string;
+  editable?: boolean;
+  onSaved: () => void;
+  onViewAttendance: () => void;
+}) {
   const [allowances, setAllowances] = useState(String(item.allowances || 0));
   const [deductions, setDeductions] = useState(String(item.deductions || 0));
   const [notes, setNotes] = useState(item.notes || "");
   const { toast } = useToast();
   const save = async () => {
-    try { await updatePayrollItem(item.id, { allowances: Number(allowances), deductions: Number(deductions), notes }); await onSaved(); toast({ title: "Payroll item updated" }); } catch (error) { toast({ title: "Update failed", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" }); }
+    try {
+      await updatePayrollItem(item.id, { allowances: Number(allowances), deductions: Number(deductions), notes });
+      await onSaved();
+      toast({ title: "Payroll item updated" });
+    } catch (error) {
+      toast({ title: "Update failed", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" });
+    }
   };
   const employeeLabel = item.employee?.profile?.full_name || item.employee?.employee_id || item.employee_id;
-  return <TableRow><TableCell>{employeeLabel}</TableCell><TableCell>{money(item.base_salary)}</TableCell><TableCell>{item.present_days} present / {item.absent_days} absent / {Math.round(item.total_work_minutes / 60)} hrs</TableCell><TableCell>{editable ? <Input className="w-28" type="number" value={allowances} onChange={(e) => setAllowances(e.target.value)} /> : money(item.allowances)}</TableCell><TableCell>{editable ? <Input className="w-28" type="number" value={deductions} onChange={(e) => setDeductions(e.target.value)} /> : money(item.deductions)}</TableCell><TableCell>{money(item.net_salary)}</TableCell><TableCell>{editable ? <Input value={notes} onChange={(e) => setNotes(e.target.value)} /> : item.notes}</TableCell><TableCell>{editable ? <Button size="sm" variant="outline" onClick={save}>Save</Button> : null}</TableCell></TableRow>;
+
+  return (
+    <TableRow>
+      <TableCell>
+        <div className="font-medium">{employeeLabel}</div>
+        <div className="text-xs text-muted-foreground">{item.employee?.designation}</div>
+      </TableCell>
+      <TableCell>{money(item.base_salary)}</TableCell>
+      <TableCell>
+        <div className="space-y-1 text-xs">
+          <div className="flex gap-2 flex-wrap">
+            <span className="text-green-700">{item.present_days} present</span>
+            {item.late_days > 0 && <span className="text-amber-700">{item.late_days} late</span>}
+            {item.half_days > 0 && <span className="text-orange-700">{item.half_days} half</span>}
+            {item.absent_days > 0 && <span className="text-red-700">{item.absent_days} absent</span>}
+            {item.leave_days > 0 && <span className="text-blue-700">{item.leave_days} leave</span>}
+          </div>
+          <div className="text-muted-foreground">{Math.round(item.total_work_minutes / 60)} hrs total</div>
+          {item.absent_equivalents > 0 && (
+            <div className="font-medium text-red-700">
+              ≡ {item.absent_equivalents} absent equivalent{item.absent_equivalents !== 1 ? "s" : ""}
+            </div>
+          )}
+        </div>
+      </TableCell>
+      <TableCell>
+        {item.attendance_deduction > 0 ? (
+          <span className="text-red-700 font-medium">-{money(item.attendance_deduction)}</span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+      </TableCell>
+      <TableCell>{editable ? <Input className="w-28" type="number" value={allowances} onChange={(e) => setAllowances(e.target.value)} /> : money(item.allowances)}</TableCell>
+      <TableCell>{editable ? <Input className="w-28" type="number" value={deductions} onChange={(e) => setDeductions(e.target.value)} /> : money(item.deductions)}</TableCell>
+      <TableCell className="font-semibold">{money(item.net_salary)}</TableCell>
+      <TableCell>
+        <div className="flex gap-1 justify-end">
+          <Button size="sm" variant="outline" onClick={onViewAttendance} title="View attendance breakdown">
+            <Eye className="h-4 w-4" />
+          </Button>
+          {editable ? <Button size="sm" variant="outline" onClick={save}>Save</Button> : null}
+        </div>
+      </TableCell>
+    </TableRow>
+  );
 }
 
 export function FlowMathReportsPage() {
