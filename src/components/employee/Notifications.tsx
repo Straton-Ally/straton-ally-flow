@@ -435,7 +435,7 @@ export function Notifications() {
       notification.type === 'overtime_declined' ||
       notification.type === 'early_checkout_response'
     ) {
-      return user?.role === 'admin' ? '/admin/attendance' : '/employee/attendance';
+      return user?.role === 'admin' || user?.isTeamLead ? '/admin/attendance' : '/employee/attendance';
     }
     if (notification.type === 'overtime_request') {
       return '/admin/attendance';
@@ -443,7 +443,7 @@ export function Notifications() {
     if (notification.type === 'early_checkout_request') {
       return '/admin/attendance';
     }
-    return user?.role === 'admin' ? '/admin/work' : '/employee/work';
+    return user?.role === 'admin' || user?.isTeamLead ? '/admin/work' : '/employee/work';
   };
 
   const handleBulkDelete = async () => {

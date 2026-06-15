@@ -21,6 +21,7 @@ interface DailyAttendance {
   date: string;
   status: 'present' | 'absent' | 'half_day' | 'leave';
   in_time: string | null;
+  check_in_at: string | null;
   out_time: string | null;
   total_hours: string | null;
 }
@@ -80,8 +81,9 @@ export function AttendanceStats() {
       if (attendanceData) {
         const processedData: DailyAttendance[] = attendanceData.map(record => ({
           date: record.date,
-          status: record.status as 'present' | 'absent' | 'half_day' | 'leave',
+          status: ((record.in_time || record.check_in_at) && record.status === 'absent' ? 'present' : record.status) as 'present' | 'absent' | 'half_day' | 'leave',
           in_time: record.in_time,
+          check_in_at: record.check_in_at,
           out_time: record.out_time,
           total_hours: record.notes?.includes('Total hours') ? 
             record.notes.split('Total hours: ')[1] : null
@@ -90,11 +92,11 @@ export function AttendanceStats() {
         setMonthlyData(processedData);
 
         // Calculate statistics
-        const totalDays = attendanceData.length;
-        const presentDays = attendanceData.filter(r => r.status === 'present').length;
-        const absentDays = attendanceData.filter(r => r.status === 'absent').length;
-        const halfDays = attendanceData.filter(r => r.status === 'half_day').length;
-        const leaveDays = attendanceData.filter(r => r.status === 'leave').length;
+        const totalDays = processedData.length;
+        const presentDays = processedData.filter(r => r.status === 'present').length;
+        const absentDays = processedData.filter(r => r.status === 'absent').length;
+        const halfDays = processedData.filter(r => r.status === 'half_day').length;
+        const leaveDays = processedData.filter(r => r.status === 'leave').length;
 
         // Calculate average hours
         const validHours = processedData

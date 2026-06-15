@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { usePWAInstall } from '@/hooks/usePWAInstall';
-import { signIn, getRedirectPath, getUserRole } from '@/lib/auth';
+import { signIn, getCurrentUser, getRedirectPath } from '@/lib/auth';
 import { AnimatedCharacters } from '@/components/ui/animated-characters';
 const loginSchema = z.object({
   email: z.string().min(1, 'Email username is required').regex(/^[a-zA-Z0-9._-]+$/, 'Invalid email username format'),
@@ -61,8 +61,8 @@ export default function Login() {
         return;
       }
       if (user) {
-        const role = await getUserRole(user.id);
-        const redirectPath = getRedirectPath(role);
+        const authUser = await getCurrentUser();
+        const redirectPath = getRedirectPath(authUser?.role ?? null, authUser?.isTeamLead ?? false);
         navigate(redirectPath, {
           replace: true
         });

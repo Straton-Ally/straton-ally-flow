@@ -8,6 +8,8 @@ export interface AuthUser {
   email: string;
   fullName: string;
   role: AppRole | null;
+  isTeamLead: boolean;
+  officeId: string | null;
   avatarUrl: string | null;
 }
 
@@ -84,11 +86,19 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   const { data: role } = await supabase
     .rpc('get_user_role', { _user_id: user.id });
 
+  const { data: employee } = await supabase
+    .from('employees')
+    .select('is_team_lead, office_id')
+    .eq('user_id', user.id)
+    .maybeSingle();
+
   return {
     id: user.id,
     email: user.email || '',
     fullName: profile?.full_name || 'User',
     role: role as AppRole | null,
+    isTeamLead: Boolean(employee?.is_team_lead),
+    officeId: employee?.office_id ?? null,
     avatarUrl: profile?.avatar_url || null,
   };
 }
@@ -100,10 +110,10 @@ export async function getUserRole(userId: string): Promise<AppRole | null> {
   return data as AppRole | null;
 }
 
-export function getRedirectPath(role: AppRole | null): string {
+export function getRedirectPath(role: AppRole | null, isTeamLead = false): string {
+  if (role === 'admin' || isTeamLead) return '/admin/dashboard';
+
   switch (role) {
-    case 'admin':
-      return '/admin/dashboard';
     case 'employee':
       return '/employee/dashboard';
     default:

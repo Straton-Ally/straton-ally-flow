@@ -59,7 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // Only redirect if we have a user with a role and we're not on admin pages
             // and this isn't a user creation operation
             if (authUser?.role && !location.pathname.startsWith('/admin') && !shouldSkip) {
-              const redirectPath = getRedirectPath(authUser.role);
+              const redirectPath = getRedirectPath(authUser.role, authUser.isTeamLead);
               navigate(redirectPath, { replace: true });
             }
           }, 0);
@@ -161,7 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             metadata?: { attendance_id?: string } | null;
           };
 
-          const url = row.action_url || (user?.role === 'admin' ? '/admin/work' : '/employee/work');
+          const url = row.action_url || (user?.role === 'admin' || user?.isTeamLead ? '/admin/work' : '/employee/work');
 
           playNotificationSound();
 
@@ -227,7 +227,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       channel.unsubscribe();
     };
-  }, [session?.user?.id, user?.role]);
+  }, [session?.user?.id, user?.role, user?.isTeamLead]);
 
   const refetch = async () => {
     await fetchUser();

@@ -101,7 +101,7 @@ export default function EmployeeDashboard() {
           .maybeSingle(),
         supabase
           .from('attendance')
-          .select('status')
+          .select('status,in_time,check_in_at')
           .eq('employee_id', employee.id)
           .gte('date', monthStart)
           .lte('date', monthEnd),
@@ -119,7 +119,7 @@ export default function EmployeeDashboard() {
       setNextAttendanceAction(computed.next);
 
       const monthRows = monthAttendanceResult.data ?? [];
-      const presentDays = monthRows.filter((row) => row.status === 'present').length;
+      const presentDays = monthRows.filter((row) => row.status === 'present' || Boolean(row.in_time || row.check_in_at)).length;
       setMonthPresentDays(presentDays);
 
       if (salaryResult.data) {

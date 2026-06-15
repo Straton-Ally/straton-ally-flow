@@ -33,12 +33,16 @@ import { formatTime12h } from '@/lib/utils';
 import { formatTimeOnlyInTimeZone, PAKISTAN_TIME_ZONE, UK_TIME_ZONE, zonedTimeToUtc } from '@/lib/timezones';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
+
+const ATTENDANCE_GRACE_MINUTES = 15;
 
 interface AttendanceRecord {
   id: string;
   date: string;
   in_time: string | null;
   out_time: string | null;
+  check_in_at: string | null;
   status: string;
   attendance_time_zone_name: string | null;
   attendance_time_zone: string | null;
@@ -100,6 +104,7 @@ interface OvertimeRequestRow {
 }
 
 export default function Attendance() {
+  const { user } = useAuth();
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [offices, setOffices] = useState<Office[]>([]);
@@ -154,6 +159,13 @@ export default function Attendance() {
     return hours * 60 + minutes;
   };
 
+  const hasCheckIn = (record: Pick<AttendanceRecord, 'in_time' | 'check_in_at'>) => Boolean(record.in_time || record.check_in_at);
+
+  const getEffectiveStatus = (record: Pick<AttendanceRecord, 'status' | 'in_time' | 'check_in_at'>) => {
+    if (hasCheckIn(record) && record.status === 'absent') return 'present';
+    return record.status;
+  };
+
   const dateTimeIso = (date: string, time: string) => {
     if (!date || !time) return null;
     return zonedTimeToUtc(date, time, PAKISTAN_TIME_ZONE)?.toISOString() ?? null;
@@ -188,10 +200,19 @@ export default function Attendance() {
   };
 
   const fetchEmployees = async () => {
-    const { data: employeesData } = await supabase
+    if (user?.isTeamLead && !user.officeId) {
+      setEmployees([]);
+      return;
+    }
+
+    let employeesQuery = supabase
       .from('employees')
       .select('id, employee_id, user_id, office_id')
       .order('employee_id');
+    if (user?.isTeamLead && user.officeId) {
+      employeesQuery = employeesQuery.eq('office_id', user.officeId);
+    }
+    const { data: employeesData } = await employeesQuery;
 
     if (employeesData) {
       const officeIds = [...new Set(employeesData.map((emp) => emp.office_id).filter(Boolean))] as string[];
@@ -220,7 +241,16 @@ export default function Attendance() {
   };
 
   const fetchOffices = async () => {
-    const { data, error } = await supabase.from('offices').select('id, name').order('name');
+    if (user?.isTeamLead && !user.officeId) {
+      setOffices([]);
+      return;
+    }
+
+    let officesQuery = supabase.from('offices').select('id, name').order('name');
+    if (user?.isTeamLead && user.officeId) {
+      officesQuery = officesQuery.eq('id', user.officeId);
+    }
+    const { data, error } = await officesQuery;
     if (error) {
       console.error('Error fetching offices:', error);
       return;
@@ -243,6 +273,7 @@ export default function Attendance() {
           date,
           in_time,
           out_time,
+          check_in_at,
           break_duration,
           break_total_minutes,
           status,
@@ -269,6 +300,10 @@ export default function Attendance() {
               .select('id, employee_id, user_id, office_id, duty_schedule_template_id, custom_work_start_time, custom_work_end_time')
               .eq('id', record.employee_id)
               .single();
+
+            if (user?.isTeamLead && (!user.officeId || emp?.office_id !== user.officeId)) {
+              return null;
+            }
 
             let fullName = 'Unknown';
             let officeName: string | null = null;
@@ -318,7 +353,7 @@ export default function Attendance() {
             };
           })
         );
-        setAttendance(withEmployeeInfo);
+        setAttendance(withEmployeeInfo.filter((record): record is AttendanceRecord => Boolean(record)));
       }
     } catch (error) {
       console.error('Error fetching attendance:', error);
@@ -330,11 +365,11 @@ export default function Attendance() {
   useEffect(() => {
     fetchEmployees();
     fetchOffices();
-  }, []);
+  }, [user?.isTeamLead, user?.officeId]);
 
   useEffect(() => {
     fetchAttendance();
-  }, [selectedDate]);
+  }, [selectedDate, user?.isTeamLead, user?.officeId]);
 
   const handleAddAttendance = async () => {
     if (!newAttendance.employeeId) {
@@ -489,9 +524,10 @@ export default function Attendance() {
           (data as EarlyCheckoutRequestRow[]).map(async (row) => {
             const { data: emp } = await supabase
               .from('employees')
-              .select('id, employee_id, user_id')
+              .select('id, employee_id, user_id, office_id')
               .eq('id', row.employee_id)
               .single();
+            if (user?.isTeamLead && (!user.officeId || emp?.office_id !== user.officeId)) return null;
             if (!emp) return { ...row, employee: { employee_id: '', full_name: 'Unknown' } };
             const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', emp.user_id).single();
             return {
@@ -500,7 +536,7 @@ export default function Attendance() {
             };
           }),
         );
-        setEarlyRequests(withNames);
+        setEarlyRequests(withNames.filter((row): row is EarlyCheckoutRequestRow => Boolean(row)));
       } else {
         setEarlyRequests([]);
       }
@@ -525,9 +561,10 @@ export default function Attendance() {
           (data as OvertimeRequestRow[]).map(async (row) => {
             const { data: emp } = await supabase
               .from('employees')
-              .select('id, employee_id, user_id')
+              .select('id, employee_id, user_id, office_id')
               .eq('id', row.employee_id)
               .single();
+            if (user?.isTeamLead && (!user.officeId || emp?.office_id !== user.officeId)) return null;
             if (!emp) return { ...row, employee: { employee_id: '', full_name: 'Unknown' } };
             const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', emp.user_id).single();
             return {
@@ -536,7 +573,7 @@ export default function Attendance() {
             };
           }),
         );
-        setOvertimeRequests(withNames);
+        setOvertimeRequests(withNames.filter((row): row is OvertimeRequestRow => Boolean(row)));
       } else {
         setOvertimeRequests([]);
       }
@@ -645,7 +682,7 @@ export default function Attendance() {
   useEffect(() => {
     fetchEarlyCheckoutRequests();
     fetchOvertimeRequests();
-  }, [selectedDate]);
+  }, [selectedDate, user?.isTeamLead, user?.officeId]);
 
   /** Compare two time strings "HH:mm:ss" or "HH:mm". Returns -1 if a < b, 0 if equal, 1 if a > b */
   const compareTime = (a: string | null | undefined, b: string | null | undefined): number => {
@@ -665,8 +702,10 @@ export default function Attendance() {
     return 0;
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
+  const getStatusBadge = (record: AttendanceRecord) => {
+    const effectiveStatus = getEffectiveStatus(record);
+
+    switch (effectiveStatus) {
       case 'present':
         return <Badge className="badge-success"><Check className="h-3 w-3 mr-1" />Present</Badge>;
       case 'absent':
@@ -676,18 +715,26 @@ export default function Attendance() {
       case 'leave':
         return <Badge className="badge-info">On Leave</Badge>;
       default:
-        return <Badge variant="secondary">{status}</Badge>;
+        return <Badge variant="secondary">{effectiveStatus}</Badge>;
     }
   };
 
   const getTimingBadges = (record: AttendanceRecord) => {
     const badges: React.ReactNode[] = [];
-    const { in_time, out_time, status, scheduleStart, scheduleEnd } = record;
-    if (status === 'absent') return badges;
+    const { in_time, out_time, scheduleStart, scheduleEnd } = record;
+    if (getEffectiveStatus(record) === 'absent') return badges;
     if (scheduleStart && in_time) {
-      const cmpIn = compareTime(in_time, scheduleStart);
-      if (cmpIn < 0) badges.push(<Badge key="early-in" variant="secondary" className="text-xs bg-green-100 text-green-800 border-0">Early check-in</Badge>);
-      if (cmpIn > 0) badges.push(<Badge key="late" variant="secondary" className="text-xs bg-amber-100 text-amber-800 border-0">Late</Badge>);
+      const inMinutes = timeToMinutes(in_time);
+      const startMinutes = timeToMinutes(scheduleStart);
+      if (inMinutes !== null && startMinutes !== null) {
+        if (inMinutes < startMinutes) {
+          badges.push(<Badge key="early-in" variant="secondary" className="text-xs bg-green-100 text-green-800 border-0">Early check-in</Badge>);
+        } else if (inMinutes > startMinutes && inMinutes <= startMinutes + ATTENDANCE_GRACE_MINUTES) {
+          badges.push(<Badge key="grace-period" variant="secondary" className="text-xs bg-blue-100 text-blue-800 border-0">Grace period</Badge>);
+        } else if (inMinutes > startMinutes + ATTENDANCE_GRACE_MINUTES) {
+          badges.push(<Badge key="late" variant="secondary" className="text-xs bg-amber-100 text-amber-800 border-0">Late</Badge>);
+        }
+      }
     }
     if (scheduleEnd && out_time) {
       const cmpOut = compareTime(out_time, scheduleEnd);
@@ -703,7 +750,7 @@ export default function Attendance() {
       || record.employee.employee_id.toLowerCase().includes(q);
     const matchesOffice = filters.officeId === '_all'
       || (filters.officeId === '_unassigned' ? !record.employee.office_id : record.employee.office_id === filters.officeId);
-    const matchesStatus = filters.status === '_all' || record.status === filters.status;
+    const matchesStatus = filters.status === '_all' || getEffectiveStatus(record) === filters.status;
 
     const from = timeToMinutes(filters.timeFrom);
     const to = timeToMinutes(filters.timeTo);
@@ -1202,7 +1249,7 @@ export default function Attendance() {
                     <TableCell className="font-medium tabular-nums">{formatWorkMinutes(record.total_work_minutes)}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1.5 items-center">
-                        {getStatusBadge(record.status)}
+                        {getStatusBadge(record)}
                         {getTimingBadges(record)}
                       </div>
                     </TableCell>
