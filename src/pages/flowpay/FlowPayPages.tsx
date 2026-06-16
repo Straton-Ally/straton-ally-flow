@@ -395,10 +395,12 @@ export function FlowPayInvoicesPage() {
   const [currency, setCurrency] = useState("GBP");
   const [taxRate, setTaxRate] = useState("");
   const [notes, setNotes] = useState("");
-  const [items, setItems] = useState<FlowPayLineItem[]>([newLine()]);
+  const [items, setItems] = useState<FlowPayLineItem[]>([]);
   const [clientDialogOpen, setClientDialogOpen] = useState(false);
   const [clientForm, setClientForm] = useState({ name: "", email: "", company_name: "", phone: "", address: "", notes: "" });
   const [isSavingClient, setIsSavingClient] = useState(false);
+  const [customServiceOpen, setCustomServiceOpen] = useState(false);
+  const [customServiceForm, setCustomServiceForm] = useState({ name: "", description: "", rate: "500" });
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -430,9 +432,40 @@ export function FlowPayInvoicesPage() {
     setItems((current) => current.map((item) => {
       if (item.id !== id) return item;
       const next = { ...item, ...updates };
-      next.amount = Number(next.quantity || 0) * Number(next.rate || 0);
+      next.amount = 1 * Number(next.rate || 0);
       return next;
     }));
+  };
+
+  const addService = (service: FlowPayInvoiceService) => {
+    const newItem: FlowPayLineItem = {
+      id: crypto.randomUUID(),
+      serviceId: service.id,
+      serviceName: service.name,
+      description: service.description || service.name,
+      quantity: 1,
+      rate: centsToAmount(service.default_rate),
+      amount: centsToAmount(service.default_rate),
+    };
+    setItems((prev) => [...prev, newItem]);
+  };
+
+  const addCustomService = () => {
+    const newItem: FlowPayLineItem = {
+      id: crypto.randomUUID(),
+      serviceName: customServiceForm.name,
+      description: customServiceForm.description,
+      quantity: 1,
+      rate: Number(customServiceForm.rate),
+      amount: Number(customServiceForm.rate),
+    };
+    setItems((prev) => [...prev, newItem]);
+    setCustomServiceForm({ name: "", description: "", rate: "500" });
+    setCustomServiceOpen(false);
+  };
+
+  const removeItem = (id: string) => {
+    setItems((prev) => prev.filter((item) => item.id !== id));
   };
 
   const resetClientForm = () => {
@@ -479,7 +512,7 @@ export function FlowPayInvoicesPage() {
     }
     const meaningfulItems = items.filter((item) => item.description.trim() && item.amount > 0);
     if (meaningfulItems.length === 0) {
-      toast({ title: "Add at least one billable line", variant: "destructive" });
+      toast({ title: "Add at least one service to the invoice", variant: "destructive" });
       return;
     }
 
@@ -528,7 +561,7 @@ export function FlowPayInvoicesPage() {
       const withUrl = await updateFlowPayInvoice(invoice.id, { metadata: { ...metadata, paymentUrl: getInvoicePaymentUrl({ ...invoice, metadata }) } as Partial<FlowPayInvoiceMetadata> });
       setShareInvoice(withUrl);
       setInvoiceNumber(newInvoiceNo());
-      setItems([newLine()]);
+      setItems([]);
       setNotes("");
       await refresh();
       toast({ title: "Invoice saved" });
@@ -560,37 +593,85 @@ export function FlowPayInvoicesPage() {
               <Select value={currency} onValueChange={setCurrency}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{["GBP", "USD", "PKR", "EUR"].map((code) => <SelectItem key={code} value={code}>{code}</SelectItem>)}</SelectContent></Select>
               <Input type="number" min="0" placeholder="Tax %" value={taxRate} onChange={(e) => setTaxRate(e.target.value)} />
             </div>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader><TableRow><TableHead className="min-w-[160px]">Service</TableHead><TableHead className="min-w-[260px]">Description</TableHead><TableHead>Qty</TableHead><TableHead>Rate</TableHead><TableHead>Amount</TableHead><TableHead className="w-12" /></TableRow></TableHeader>
-                <TableBody>
-                  {items.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell>
-                        <Select
-                          value={item.serviceId || "custom"}
-                          onValueChange={(value) => {
-                            const service = services.find((entry) => entry.id === value);
-                            updateItem(item.id, { serviceId: value === "custom" ? null : value, serviceName: service?.name || null, description: service?.description || item.description, rate: service ? service.default_rate / 100 : item.rate });
-                          }}
-                        >
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent><SelectItem value="custom">Custom</SelectItem>{services.map((service) => <SelectItem key={service.id} value={service.id}>{service.name}</SelectItem>)}</SelectContent>
-                        </Select>
-                      </TableCell>
-                      <TableCell><Input value={item.description} onChange={(e) => updateItem(item.id, { description: e.target.value })} /></TableCell>
-                      <TableCell><Input className="w-20" type="number" min="0" value={item.quantity} onChange={(e) => updateItem(item.id, { quantity: Number(e.target.value) })} /></TableCell>
-                      <TableCell><Input className="w-28" type="number" min="0" value={item.rate} onChange={(e) => updateItem(item.id, { rate: Number(e.target.value) })} /></TableCell>
-                      <TableCell>{formatFlowPayMoney(amountToCents(item.amount), currency)}</TableCell>
-                      <TableCell><Button size="icon" variant="ghost" disabled={items.length === 1} onClick={() => setItems((current) => current.filter((row) => row.id !== item.id))}><Trash2 className="h-4 w-4" /></Button></TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+            
+            <div>
+              <h4 className="text-sm font-medium mb-3">Select services</h4>
+              <div className="flex flex-wrap gap-2 mb-4">
+                {services.map((service) => (
+                  <button
+                    key={service.id}
+                    onClick={() => addService(service)}
+                    className="inline-flex items-center gap-2 rounded-full bg-secondary/50 px-4 py-2 text-sm font-medium text-foreground transition-all hover:bg-secondary hover:scale-105 active:scale-95"
+                  >
+                    <Plus className="h-4 w-4 text-muted-foreground" />
+                    {service.name}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setCustomServiceOpen(true)}
+                  className="inline-flex items-center gap-2 rounded-full border-2 border-dashed border-border bg-background px-4 py-2 text-sm font-medium text-muted-foreground transition-all hover:border-primary/40 hover:text-foreground hover:scale-105 active:scale-95"
+                >
+                  <Plus className="h-4 w-4" />
+                  Custom Service
+                </button>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => setItems((current) => [...current, newLine()])}><Plus className="h-4 w-4" />Add line</Button>
+
+            <div className="space-y-3">
+              <h4 className="text-sm font-medium mb-3">Invoice items</h4>
+              {items.length === 0 && (
+                <div className="rounded-lg border border-dashed border-border bg-secondary/10 p-8 text-center">
+                  <p className="text-sm text-muted-foreground">Select services from above to add them to your invoice</p>
+                </div>
+              )}
+              {items.map((item, index) => (
+                <div key={item.id} className="group relative flex items-end gap-3 rounded-lg border border-border bg-card p-4 transition-all hover:shadow-sm">
+                  <div className="absolute -left-3 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                    {index + 1}
+                  </div>
+                  <div className="flex-1 space-y-2 pl-3">
+                    <p className="font-semibold">{item.serviceName || item.description}</p>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div className="sm:col-span-2">
+                        <Label className="text-xs text-muted-foreground">Description</Label>
+                        <Input
+                          value={item.description}
+                          onChange={(e) => updateItem(item.id, { description: e.target.value })}
+                          className="h-8 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Rate</Label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">{currency.toUpperCase()}</span>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={item.rate}
+                            onChange={(e) => updateItem(item.id, { rate: Number(e.target.value) })}
+                            className="h-8 pl-10 text-sm"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-2">
+                    <Label className="text-xs text-muted-foreground">Amount</Label>
+                    <p className="text-lg font-semibold">{formatFlowPayMoney(amountToCents(item.amount), currency)}</p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeItem(item.id)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                  </Button>
+                </div>
+              ))}
             </div>
+            
             <Textarea placeholder="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
             <div className="flex justify-end"><Button onClick={saveInvoice} disabled={!selectedCompany || !selectedClient}>Save Invoice</Button></div>
           </CardContent>
@@ -633,6 +714,30 @@ export function FlowPayInvoicesPage() {
             <div className="flex justify-end gap-2 sm:col-span-2">
               <Button type="button" variant="outline" onClick={() => setClientDialogOpen(false)}>Cancel</Button>
               <Button type="button" onClick={createClientFromInvoice} disabled={isSavingClient}>{isSavingClient ? "Saving..." : "Add and select"}</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      
+      <Dialog open={customServiceOpen} onOpenChange={setCustomServiceOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Add Custom Service</DialogTitle></DialogHeader>
+          <div className="grid grid-cols-1 gap-3">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="custom-service-name">Service name</Label>
+              <Input id="custom-service-name" value={customServiceForm.name} onChange={(e) => setCustomServiceForm({ ...customServiceForm, name: e.target.value })} />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="custom-service-description">Description</Label>
+              <Input id="custom-service-description" value={customServiceForm.description} onChange={(e) => setCustomServiceForm({ ...customServiceForm, description: e.target.value })} />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="custom-service-rate">Rate</Label>
+              <Input id="custom-service-rate" type="number" step="0.01" min="0" value={customServiceForm.rate} onChange={(e) => setCustomServiceForm({ ...customServiceForm, rate: e.target.value })} />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setCustomServiceOpen(false)}>Cancel</Button>
+              <Button type="button" onClick={addCustomService}>Add Service</Button>
             </div>
           </div>
         </DialogContent>
