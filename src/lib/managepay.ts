@@ -260,7 +260,7 @@ export async function deleteManagePayService(id: string) {
 export async function listManagePayInvoices(): Promise<ManagePayInvoice[]> {
   const { data, error } = await db.from("managepay_invoices").select("*").order("created_at", { ascending: false });
   if (error) throw error;
-  return (data ?? []) as ManagePayInvoice[];
+  return Promise.all(((data ?? []) as ManagePayInvoice[]).map(hydrateInvoiceCompanyBranding));
 }
 
 export async function createManagePayInvoice(payload: {
@@ -276,13 +276,13 @@ export async function createManagePayInvoice(payload: {
 }) {
   const { data, error } = await db.from("managepay_invoices").insert(payload).select("*").single();
   if (error) throw error;
-  return data as ManagePayInvoice;
+  return hydrateInvoiceCompanyBranding(data as ManagePayInvoice);
 }
 
 export async function updateManagePayInvoice(id: string, payload: Partial<ManagePayInvoice>) {
   const { data, error } = await db.from("managepay_invoices").update(payload).eq("id", id).select("*").single();
   if (error) throw error;
-  return data as ManagePayInvoice;
+  return hydrateInvoiceCompanyBranding(data as ManagePayInvoice);
 }
 
 export async function deleteManagePayInvoice(id: string) {
@@ -293,7 +293,8 @@ export async function deleteManagePayInvoice(id: string) {
 export async function getPublicManagePayInvoice(invoiceRef: string): Promise<ManagePayInvoice | null> {
   const { data, error } = await db.rpc("get_managepay_public_invoice", { _invoice_ref: invoiceRef });
   if (error) throw error;
-  return ((data ?? [])[0] ?? null) as ManagePayInvoice | null;
+  const invoice = ((data ?? [])[0] ?? null) as ManagePayInvoice | null;
+  return invoice ? hydrateInvoiceCompanyBranding(invoice) : null;
 }
 
 export async function listManagePayTerminalTransactions(): Promise<ManagePayTerminalTransaction[]> {
@@ -306,4 +307,42 @@ export async function createManagePayTerminalTransaction(payload: Omit<ManagePay
   const { data, error } = await db.from("managepay_terminal_transactions").insert(payload).select("*").single();
   if (error) throw error;
   return data as ManagePayTerminalTransaction;
+}
+
+async function hydrateInvoiceCompanyBranding(invoice: ManagePayInvoice): Promise<ManagePayInvoice> {
+  const company = (invoice.metadata?.company || {}) as {
+    id?: string;
+    logoUrl?: string | null;
+    logo_url?: string | null;
+    logoHasDarkBg?: boolean;
+    logo_has_dark_bg?: boolean;
+  };
+
+  if (!company.id || company.logoUrl || company.logo_url) {
+    return invoice;
+  }
+
+  const { data, error } = await db
+    .from("managepay_companies")
+    .select("logo_url,logo_has_dark_bg")
+    .eq("id", company.id)
+    .maybeSingle();
+
+  if (error || !data?.logo_url) {
+    return invoice;
+  }
+
+  return {
+    ...invoice,
+    metadata: {
+      ...invoice.metadata,
+      company: {
+        ...company,
+        logoUrl: data.logo_url,
+        logo_url: data.logo_url,
+        logoHasDarkBg: data.logo_has_dark_bg,
+        logo_has_dark_bg: data.logo_has_dark_bg,
+      },
+    },
+  };
 }

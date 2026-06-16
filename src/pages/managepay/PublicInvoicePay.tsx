@@ -58,9 +58,15 @@ export function InvoicePaymentView({ invoice }: { invoice: ManagePayInvoice }) {
     phone?: string;
     website?: string;
     logoUrl?: string | null;
+    logo_url?: string | null;
     logoHasDarkBg?: boolean;
+    logo_has_dark_bg?: boolean;
     taxId?: string;
+    tax_id?: string;
   };
+  const logoUrl = company.logoUrl || company.logo_url || null;
+  const logoNeedsDarkBg = Boolean(company.logoHasDarkBg ?? company.logo_has_dark_bg);
+  const taxId = company.taxId || company.tax_id;
   const client = (invoice.metadata?.client || {}) as { name?: string; email?: string; companyName?: string; address?: string };
   const items = (invoice.metadata?.items || []) as ManagePayLineItem[];
   const subtotal = Number(invoice.metadata?.subtotal ?? 0);
@@ -83,9 +89,9 @@ export function InvoicePaymentView({ invoice }: { invoice: ManagePayInvoice }) {
           <CardContent className="flex flex-col gap-6 p-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="flex items-start gap-3">
-                {company.logoUrl ? (
-                  <div className={company.logoHasDarkBg ? "rounded-lg bg-foreground p-2" : ""}>
-                    <img src={company.logoUrl} alt={company.name || "Company logo"} className="h-12 max-w-[160px] object-contain" />
+                {logoUrl ? (
+                  <div className={logoNeedsDarkBg ? "rounded-lg bg-foreground p-3" : ""}>
+                    <img src={logoUrl} alt={company.name || "Company logo"} className="h-14 max-w-[180px] object-contain" />
                   </div>
                 ) : null}
                 <div>
@@ -98,7 +104,7 @@ export function InvoicePaymentView({ invoice }: { invoice: ManagePayInvoice }) {
               <div className="text-sm sm:text-right">
                 <p className="text-muted-foreground">Due date</p>
                 <p className="font-medium">{invoice.due_date ? new Date(invoice.due_date).toLocaleDateString() : "No due date"}</p>
-                {company.taxId ? <p className="mt-2 text-muted-foreground">Tax ID {company.taxId}</p> : null}
+                {taxId ? <p className="mt-2 text-muted-foreground">Tax ID {taxId}</p> : null}
               </div>
             </div>
 

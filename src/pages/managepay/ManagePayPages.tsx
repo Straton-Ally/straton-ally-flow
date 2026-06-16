@@ -446,9 +446,13 @@ export function ManagePayInvoicesPage() {
           phone: selectedCompany.phone,
           website: selectedCompany.website,
           logoUrl: selectedCompany.logo_url,
+          logo_url: selectedCompany.logo_url,
           logoHasDarkBg: selectedCompany.logo_has_dark_bg,
+          logo_has_dark_bg: selectedCompany.logo_has_dark_bg,
           paymentBaseUrl: selectedCompany.payment_base_url,
+          payment_base_url: selectedCompany.payment_base_url,
           taxId: selectedCompany.tax_id,
+          tax_id: selectedCompany.tax_id,
         },
         client: {
           name: selectedClient.name,
@@ -596,10 +600,17 @@ function InvoicePreview({ company, client, invoiceNumber, dueDate, currency, ite
       <CardHeader><CardTitle className="text-base">Preview</CardTitle></CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-lg font-semibold">{company?.name || "Company"}</p>
-            <p className="text-sm text-muted-foreground">{company?.email}</p>
-            <p className="text-sm text-muted-foreground">{company?.address}</p>
+          <div className="flex min-w-0 items-start gap-3">
+            {company?.logo_url ? (
+              <div className={cn("flex min-h-14 min-w-24 items-center justify-center rounded-lg", company.logo_has_dark_bg && "bg-foreground p-3")}>
+                <img src={company.logo_url} alt={company.name || "Company logo"} className="max-h-14 max-w-[180px] object-contain" />
+              </div>
+            ) : null}
+            <div className="min-w-0">
+              <p className="text-lg font-semibold">{company?.name || "Company"}</p>
+              <p className="text-sm text-muted-foreground">{company?.email}</p>
+              <p className="text-sm text-muted-foreground">{company?.address}</p>
+            </div>
           </div>
           <div className="text-right">
             <p className="text-sm text-muted-foreground">Invoice</p>
