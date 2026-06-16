@@ -112,6 +112,14 @@ export interface ManagePayAccessCandidate {
   department_name: string | null;
   override_allowed: boolean | null;
   effective_access: boolean;
+  allowed_company_ids: string[];
+}
+
+export interface ManagePayInvoiceCreator {
+  user_id: string;
+  full_name: string;
+  email: string | null;
+  employee_code: string | null;
 }
 
 export function centsToAmount(cents: number | null | undefined) {
@@ -197,6 +205,14 @@ export async function clearManagePayAccessOverride(employeeId: string) {
   if (error) throw error;
 }
 
+export async function setManagePayEmployeeCompanyAccess(employeeId: string, companyIds: string[]) {
+  const { error } = await db.rpc("set_managepay_employee_company_access", {
+    _employee_id: employeeId,
+    _company_ids: companyIds,
+  });
+  if (error) throw error;
+}
+
 export async function listManagePayCompanies(activeOnly = false): Promise<ManagePayCompany[]> {
   let query = db.from("managepay_companies").select("*").order("name");
   if (activeOnly) query = query.eq("is_active", true);
@@ -263,6 +279,34 @@ export async function listManagePayInvoices(): Promise<ManagePayInvoice[]> {
   return Promise.all(((data ?? []) as ManagePayInvoice[]).map(hydrateInvoiceCompanyBranding));
 }
 
+export async function listManagePayInvoiceCreators(userIds: string[]): Promise<Record<string, ManagePayInvoiceCreator>> {
+  const uniqueIds = Array.from(new Set(userIds.filter(Boolean)));
+  if (uniqueIds.length === 0) return {};
+
+  const [{ data: profiles, error: profilesError }, { data: employees, error: employeesError }] = await Promise.all([
+    db.from("profiles").select("id, full_name, email").in("id", uniqueIds),
+    db.from("employees").select("user_id, employee_id").in("user_id", uniqueIds),
+  ]);
+  if (profilesError) throw profilesError;
+  if (employeesError) throw employeesError;
+
+  const employeeByUserId = new Map((employees ?? []).map((employee: any) => [employee.user_id, employee.employee_id]));
+  return Object.fromEntries(
+    uniqueIds.map((userId) => {
+      const profile = (profiles ?? []).find((entry: any) => entry.id === userId);
+      return [
+        userId,
+        {
+          user_id: userId,
+          full_name: profile?.full_name || employeeByUserId.get(userId) || "Unknown user",
+          email: profile?.email ?? null,
+          employee_code: employeeByUserId.get(userId) ?? null,
+        },
+      ];
+    }),
+  );
+}
+
 export async function createManagePayInvoice(payload: {
   invoice_number: string;
   seller_id: string;
@@ -286,7 +330,17 @@ export async function updateManagePayInvoice(id: string, payload: Partial<Manage
 }
 
 export async function deleteManagePayInvoice(id: string) {
-  const { error } = await db.from("managepay_invoices").delete().eq("id", id).eq("status", "pending");
+  const { data: invoice, error: fetchError } = await db
+    .from("managepay_invoices")
+    .select("status")
+    .eq("id", id)
+    .maybeSingle();
+  if (fetchError) throw fetchError;
+  if (invoice?.status === "paid") {
+    throw new Error("Paid invoices cannot be deleted");
+  }
+
+  const { error } = await db.from("managepay_invoices").delete().eq("id", id).neq("status", "paid");
   if (error) throw error;
 }
 

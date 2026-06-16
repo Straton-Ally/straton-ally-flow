@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Building2, CreditCard, FileText, LayoutDashboard, LogOut, ReceiptText, Settings, Terminal, Users, WalletCards } from "lucide-react";
+import { Building2, FileText, LayoutDashboard, LogOut, ReceiptText, Settings, Users, WalletCards } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { cn } from "@/lib/utils";
@@ -11,7 +11,6 @@ const navItems = [
   { label: "Invoices", href: "/managepay/invoices", icon: FileText },
   { label: "Clients", href: "/managepay/clients", icon: Users },
   { label: "Companies", href: "/managepay/companies", icon: Building2 },
-  { label: "Terminal", href: "/managepay/terminal", icon: Terminal },
   { label: "Settings", href: "/managepay/settings", icon: Settings },
 ];
 

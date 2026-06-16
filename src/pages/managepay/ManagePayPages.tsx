@@ -3,6 +3,7 @@ import { addDays, format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,6 +31,7 @@ import {
   listManagePayAccessCandidates,
   listManagePayClients,
   listManagePayCompanies,
+  listManagePayInvoiceCreators,
   listManagePayInvoices,
   listManagePayServices,
   listManagePayTerminalTransactions,
@@ -37,6 +39,7 @@ import {
   ManagePayClient,
   ManagePayCompany,
   ManagePayInvoice,
+  ManagePayInvoiceCreator,
   ManagePayInvoiceService,
   ManagePayLineItem,
   ManagePayPaymentMethod,
@@ -45,6 +48,7 @@ import {
   saveManagePayClient,
   saveManagePayCompany,
   saveManagePayService,
+  setManagePayEmployeeCompanyAccess,
   updateManagePayInvoice,
   uploadManagePayCompanyLogo,
 } from "@/lib/managepay";
@@ -56,6 +60,13 @@ import { useParams } from "react-router-dom";
 const includesText = (value: unknown, query: string) => String(value ?? "").toLowerCase().includes(query.toLowerCase().trim());
 const newInvoiceNo = () => `INV-${format(new Date(), "yyyyMMdd-HHmmss")}`;
 const newLine = (): ManagePayLineItem => ({ id: crypto.randomUUID(), description: "", quantity: 1, rate: 0, amount: 0 });
+const formatManagePayDateTime = (value: string) => {
+  try {
+    return format(new Date(value), "dd MMM yyyy, h:mm a");
+  } catch {
+    return value;
+  }
+};
 
 function PageHeader({ title, description, action }: { title: string; description: string; action?: React.ReactNode }) {
   return (
@@ -97,15 +108,22 @@ export function ManagePayDashboardPage() {
   const [invoices, setInvoices] = useState<ManagePayInvoice[]>([]);
   const [clients, setClients] = useState<ManagePayClient[]>([]);
   const [companies, setCompanies] = useState<ManagePayCompany[]>([]);
+  const [invoiceCreators, setInvoiceCreators] = useState<Record<string, ManagePayInvoiceCreator>>({});
   const [companyFilter, setCompanyFilter] = useState("all");
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
 
   useEffect(() => {
-    void Promise.all([listManagePayInvoices(), listManagePayClients(), listManagePayCompanies()]).then(([nextInvoices, nextClients, nextCompanies]) => {
+    const refresh = async () => {
+      const [nextInvoices, nextClients, nextCompanies] = await Promise.all([listManagePayInvoices(), listManagePayClients(), listManagePayCompanies()]);
       setInvoices(nextInvoices);
       setClients(nextClients);
       setCompanies(nextCompanies);
-    });
-  }, []);
+      setInvoiceCreators(isAdmin ? await listManagePayInvoiceCreators(nextInvoices.map((invoice) => invoice.seller_id)) : {});
+    };
+
+    void refresh();
+  }, [isAdmin]);
 
   const visibleInvoices = invoices.filter((invoice) => {
     if (companyFilter === "all") return true;
@@ -148,7 +166,16 @@ export function ManagePayDashboardPage() {
       <Card className="card-elevated">
         <CardHeader><CardTitle className="text-base">Recent invoices</CardTitle></CardHeader>
         <CardContent className="p-0">
-          <InvoicesTable invoices={visibleInvoices.slice(0, 8)} onRefresh={() => listManagePayInvoices().then(setInvoices)} />
+          <InvoicesTable
+            invoices={visibleInvoices.slice(0, 8)}
+            creators={invoiceCreators}
+            showCreator={isAdmin}
+            onRefresh={async () => {
+              const nextInvoices = await listManagePayInvoices();
+              setInvoices(nextInvoices);
+              setInvoiceCreators(isAdmin ? await listManagePayInvoiceCreators(nextInvoices.map((invoice) => invoice.seller_id)) : {});
+            }}
+          />
         </CardContent>
       </Card>
     </div>
@@ -194,7 +221,7 @@ export function ManagePayCompaniesPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <PageHeader title="Companies" description="Manage invoice brands, contact details, logo URLs, and payment base URLs." />
+      <PageHeader title="Companies" description="Manage invoice brands, contact details, uploaded logos, and payment base URLs." />
       {isAdmin ? (
         <Card className="card-elevated">
           <CardHeader><CardTitle className="text-base">{editing ? "Edit company" : "Add company"}</CardTitle></CardHeader>
@@ -223,7 +250,7 @@ export function ManagePayCompaniesPage() {
                 </div>
                 <div className="min-w-0 text-sm">
                   <p className="font-medium">{logoFile?.name || "Current logo"}</p>
-                  <p className="truncate text-xs text-muted-foreground">{logoFile ? "Ready to upload on save" : form.logo_url}</p>
+                  <p className="text-xs text-muted-foreground">{logoFile ? "Ready to upload on save" : "Stored in company branding"}</p>
                 </div>
               </div>
             ) : null}
@@ -288,8 +315,13 @@ export function ManagePayClientsPage() {
 
   const save = async () => {
     if (!user?.id) return;
+    if (!form.name.trim() || !form.email.trim()) {
+      toast({ title: "Client name and email are required", variant: "destructive" });
+      return;
+    }
+
     try {
-      await saveManagePayClient({ ...form, user_id: user.id }, editing?.id);
+      await saveManagePayClient({ ...form, name: form.name.trim(), email: form.email.trim(), user_id: user.id }, editing?.id);
       reset();
       await refresh();
       toast({ title: editing ? "Client updated" : "Client created" });
@@ -306,8 +338,14 @@ export function ManagePayClientsPage() {
       <Card className="card-elevated">
         <CardHeader><CardTitle className="text-base">{editing ? "Edit client" : "Add client"}</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <Input placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <Input placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="managepay-client-name">Name <span className="text-destructive">*</span></Label>
+            <Input id="managepay-client-name" required placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="managepay-client-email">Email <span className="text-destructive">*</span></Label>
+            <Input id="managepay-client-email" required type="email" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          </div>
           <Input placeholder="Company name" value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} />
           <Input placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
           <Input className="md:col-span-2" placeholder="Address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
@@ -371,12 +409,13 @@ export function ManagePayInvoicesPage() {
       listManagePayServices(),
       listManagePayInvoices(),
     ]);
+    const activeClients = nextClients.filter((client) => client.is_active);
     setCompanies(nextCompanies);
-    setClients(nextClients.filter((client) => client.is_active));
+    setClients(activeClients);
     setServices(nextServices);
     setInvoices(nextInvoices);
-    if (!companyId && nextCompanies[0]) setCompanyId(nextCompanies[0].id);
-    if (!clientId && nextClients[0]) setClientId(nextClients[0].id);
+    if (!nextCompanies.some((company) => company.id === companyId)) setCompanyId(nextCompanies[0]?.id ?? "");
+    if (!activeClients.some((client) => client.id === clientId)) setClientId(activeClients[0]?.id ?? "");
   };
 
   useEffect(() => { void refresh(); }, []);
@@ -429,7 +468,15 @@ export function ManagePayInvoicesPage() {
   };
 
   const saveInvoice = async () => {
-    if (!user?.id || !selectedCompany || !selectedClient) return;
+    if (!user?.id) return;
+    if (!selectedCompany) {
+      toast({ title: "No company access", description: "Ask an admin to assign at least one ManagePay company.", variant: "destructive" });
+      return;
+    }
+    if (!selectedClient) {
+      toast({ title: "Select or add a client", variant: "destructive" });
+      return;
+    }
     const meaningfulItems = items.filter((item) => item.description.trim() && item.amount > 0);
     if (meaningfulItems.length === 0) {
       toast({ title: "Add at least one billable line", variant: "destructive" });
@@ -545,7 +592,7 @@ export function ManagePayInvoicesPage() {
               <Button variant="outline" onClick={() => setItems((current) => [...current, newLine()])}><Plus className="h-4 w-4" />Add line</Button>
             </div>
             <Textarea placeholder="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
-            <div className="flex justify-end"><Button onClick={saveInvoice}>Save Invoice</Button></div>
+            <div className="flex justify-end"><Button onClick={saveInvoice} disabled={!selectedCompany || !selectedClient}>Save Invoice</Button></div>
           </CardContent>
         </Card>
         <InvoicePreview company={selectedCompany} client={selectedClient} invoiceNumber={invoiceNumber} dueDate={dueDate} currency={currency} items={items} subtotal={subtotal} tax={tax} total={total} notes={notes} />
@@ -560,12 +607,12 @@ export function ManagePayInvoicesPage() {
           <DialogHeader><DialogTitle>Add client</DialogTitle></DialogHeader>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="invoice-client-name">Name</Label>
-              <Input id="invoice-client-name" value={clientForm.name} onChange={(e) => setClientForm({ ...clientForm, name: e.target.value })} />
+              <Label htmlFor="invoice-client-name">Name <span className="text-destructive">*</span></Label>
+              <Input id="invoice-client-name" required value={clientForm.name} onChange={(e) => setClientForm({ ...clientForm, name: e.target.value })} />
             </div>
             <div className="flex flex-col gap-2">
-              <Label htmlFor="invoice-client-email">Email</Label>
-              <Input id="invoice-client-email" type="email" value={clientForm.email} onChange={(e) => setClientForm({ ...clientForm, email: e.target.value })} />
+              <Label htmlFor="invoice-client-email">Email <span className="text-destructive">*</span></Label>
+              <Input id="invoice-client-email" required type="email" value={clientForm.email} onChange={(e) => setClientForm({ ...clientForm, email: e.target.value })} />
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="invoice-client-company">Company</Label>
@@ -599,23 +646,25 @@ function InvoicePreview({ company, client, invoiceNumber, dueDate, currency, ite
     <Card className="card-elevated">
       <CardHeader><CardTitle className="text-base">Preview</CardTitle></CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex min-w-0 items-start gap-3">
+        <div className="flex flex-col gap-4">
+          <div className="flex min-w-0 items-center justify-between gap-3">
             {company?.logo_url ? (
-              <div className={cn("flex min-h-14 min-w-24 items-center justify-center rounded-lg", company.logo_has_dark_bg && "bg-foreground p-3")}>
-                <img src={company.logo_url} alt={company.name || "Company logo"} className="max-h-14 max-w-[180px] object-contain" />
+              <div className={cn("flex h-14 min-w-0 max-w-[190px] shrink items-center justify-start rounded-lg", company.logo_has_dark_bg && "bg-foreground p-2")}>
+                <img src={company.logo_url} alt={company.name || "Company logo"} className="max-h-12 max-w-full object-contain" />
               </div>
             ) : null}
+            <div className="shrink-0 text-right">
+              <p className="text-sm text-muted-foreground">Invoice</p>
+              <p className="max-w-[190px] truncate font-semibold" title={invoiceNumber}>{invoiceNumber}</p>
+              <p className="text-xs text-muted-foreground">Due {dueDate}</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_auto]">
             <div className="min-w-0">
               <p className="text-lg font-semibold">{company?.name || "Company"}</p>
               <p className="text-sm text-muted-foreground">{company?.email}</p>
               <p className="text-sm text-muted-foreground">{company?.address}</p>
             </div>
-          </div>
-          <div className="text-right">
-            <p className="text-sm text-muted-foreground">Invoice</p>
-            <p className="font-semibold">{invoiceNumber}</p>
-            <p className="text-xs text-muted-foreground">Due {dueDate}</p>
           </div>
         </div>
         <div className="surface-tile">
@@ -642,21 +691,71 @@ function InvoicePreview({ company, client, invoiceNumber, dueDate, currency, ite
   );
 }
 
-function InvoicesTable({ invoices, onRefresh, onShare }: { invoices: ManagePayInvoice[]; onRefresh: () => void | Promise<void>; onShare?: (invoice: ManagePayInvoice) => void }) {
+function InvoicesTable({
+  invoices,
+  onRefresh,
+  onShare,
+  creators = {},
+  showCreator = false,
+}: {
+  invoices: ManagePayInvoice[];
+  onRefresh: () => void | Promise<void>;
+  onShare?: (invoice: ManagePayInvoice) => void;
+  creators?: Record<string, ManagePayInvoiceCreator>;
+  showCreator?: boolean;
+}) {
   const { toast } = useToast();
+
+  const removeInvoice = async (invoice: ManagePayInvoice) => {
+    if (invoice.status === "paid") {
+      toast({ title: "Paid invoices cannot be deleted", description: "This invoice has already been paid and must remain in the record." });
+      return;
+    }
+
+    if (!window.confirm(`Delete invoice ${invoice.invoice_number}? This cannot be undone.`)) return;
+
+    try {
+      await deleteManagePayInvoice(invoice.id);
+      await onRefresh();
+      toast({ title: "Invoice deleted" });
+    } catch (error) {
+      toast({ title: "Invoice delete failed", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" });
+    }
+  };
+
   return (
     <div className="overflow-x-auto">
       <Table>
-        <TableHeader><TableRow><TableHead>No</TableHead><TableHead>Client</TableHead><TableHead>Company</TableHead><TableHead>Total</TableHead><TableHead>Status</TableHead><TableHead className="w-36" /></TableRow></TableHeader>
+        <TableHeader>
+          <TableRow>
+            <TableHead>No</TableHead>
+            <TableHead>Client</TableHead>
+            {showCreator ? <TableHead>Created by</TableHead> : null}
+            <TableHead>Company</TableHead>
+            <TableHead>Total</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead className="w-36" />
+          </TableRow>
+        </TableHeader>
         <TableBody>
           {invoices.map((invoice) => {
             const company = invoice.metadata?.company as { name?: string } | undefined;
             const client = invoice.metadata?.client as { name?: string } | undefined;
+            const creator = creators[invoice.seller_id];
             const paymentUrl = getInvoicePaymentUrl(invoice);
             return (
               <TableRow key={invoice.id}>
                 <TableCell>{invoice.invoice_number}</TableCell>
                 <TableCell>{client?.name || invoice.client_email}</TableCell>
+                {showCreator ? (
+                  <TableCell>
+                    <div className="font-medium">{creator?.full_name || "Unknown user"}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {formatManagePayDateTime(invoice.created_at)}
+                      {creator?.employee_code ? ` - ${creator.employee_code}` : ""}
+                    </div>
+                  </TableCell>
+                ) : null}
                 <TableCell>{company?.name || "Company"}</TableCell>
                 <TableCell>{formatManagePayMoney(invoice.amount_in_cents, invoice.currency)}</TableCell>
                 <TableCell><StatusBadge status={invoice.status} /></TableCell>
@@ -665,7 +764,7 @@ function InvoicesTable({ invoices, onRefresh, onShare }: { invoices: ManagePayIn
                     <Button size="icon" variant="ghost" title="View as client" onClick={() => window.open(getInvoiceClientPreviewUrl(invoice), "_blank", "noopener,noreferrer")}><Eye className="h-4 w-4" /></Button>
                     <Button size="icon" variant="ghost" onClick={() => copyText(paymentUrl, "Payment link copied", toast)}><Copy className="h-4 w-4" /></Button>
                     <Button size="icon" variant="ghost" onClick={() => onShare?.(invoice)}><QrCode className="h-4 w-4" /></Button>
-                    {invoice.status === "pending" ? <Button size="icon" variant="ghost" onClick={async () => { await deleteManagePayInvoice(invoice.id); await onRefresh(); }}><Trash2 className="h-4 w-4" /></Button> : null}
+                    <Button size="icon" variant="ghost" title="Delete invoice" onClick={() => removeInvoice(invoice)}><Trash2 className="h-4 w-4" /></Button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -681,7 +780,6 @@ function ShareDialog({ invoice, onOpenChange }: { invoice: ManagePayInvoice | nu
   const { toast } = useToast();
   if (!invoice) return null;
   const link = getInvoicePaymentUrl(invoice);
-  const previewLink = getInvoiceClientPreviewUrl(invoice);
   const subject = encodeURIComponent(`Invoice ${invoice.invoice_number}`);
   const body = encodeURIComponent(`Please use this link to view and pay invoice ${invoice.invoice_number}: ${link}`);
   return (
@@ -690,8 +788,7 @@ function ShareDialog({ invoice, onOpenChange }: { invoice: ManagePayInvoice | nu
         <DialogHeader><DialogTitle>Share invoice {invoice.invoice_number}</DialogTitle></DialogHeader>
         <div className="flex flex-col gap-3">
           <Input readOnly value={link} />
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-            <Button variant="outline" onClick={() => window.open(previewLink, "_blank", "noopener,noreferrer")}><Eye className="h-4 w-4" />Preview</Button>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <Button variant="outline" onClick={() => copyText(link, "Payment link copied", toast)}><Copy className="h-4 w-4" />Copy</Button>
             <Button variant="outline" onClick={() => window.open(`mailto:${invoice.client_email}?subject=${subject}&body=${body}`)}><Mail className="h-4 w-4" />Email</Button>
             <Button variant="outline" onClick={() => window.open(`https://wa.me/?text=${body}`)}><MessageCircle className="h-4 w-4" />WhatsApp</Button>
@@ -781,17 +878,25 @@ export function ManagePaySettingsPage() {
   const isAdmin = user?.role === "admin";
   const [services, setServices] = useState<ManagePayInvoiceService[]>([]);
   const [accessRows, setAccessRows] = useState<ManagePayAccessCandidate[]>([]);
+  const [companies, setCompanies] = useState<ManagePayCompany[]>([]);
+  const [companySelections, setCompanySelections] = useState<Record<string, string[]>>({});
   const [serviceForm, setServiceForm] = useState({ name: "", description: "", default_rate: "" });
   const [search, setSearch] = useState("");
+  const [filterDepartment, setFilterDepartment] = useState<string>("all");
+  const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [filterCompany, setFilterCompany] = useState<string>("all");
   const { toast } = useToast();
 
   const refresh = async () => {
-    const [nextServices, nextAccess] = await Promise.all([
+    const [nextServices, nextAccess, nextCompanies] = await Promise.all([
       listManagePayServices(),
       isAdmin ? listManagePayAccessCandidates() : Promise.resolve([]),
+      isAdmin ? listManagePayCompanies() : Promise.resolve([]),
     ]);
     setServices(nextServices);
     setAccessRows(nextAccess);
+    setCompanies(nextCompanies);
+    setCompanySelections(Object.fromEntries(nextAccess.map((row) => [row.employee_id, row.allowed_company_ids ?? []])));
   };
   useEffect(() => { void refresh(); }, [isAdmin]);
 
@@ -817,11 +922,55 @@ export function ManagePaySettingsPage() {
     }
   };
 
-  const filteredAccessRows = accessRows.filter((row) => [row.full_name, row.employee_code, row.department_name].some((value) => includesText(value, search)));
+  const toggleCompanyAccess = (employeeId: string, companyId: string, checked: boolean) => {
+    setCompanySelections((current) => {
+      const selected = new Set(current[employeeId] ?? []);
+      if (checked) selected.add(companyId);
+      else selected.delete(companyId);
+      return { ...current, [employeeId]: Array.from(selected) };
+    });
+  };
+
+  const saveCompanyAccess = async (row: ManagePayAccessCandidate) => {
+    try {
+      await setManagePayEmployeeCompanyAccess(row.employee_id, companySelections[row.employee_id] ?? []);
+      await refresh();
+      toast({ title: "Company access saved" });
+    } catch (error) {
+      toast({ title: "Company access failed", description: error instanceof Error ? error.message : "Unknown error", variant: "destructive" });
+    }
+  };
+
+  const filteredAccessRows = accessRows.filter((row) => {
+    // Search filter
+    const matchesSearch = [row.full_name, row.employee_code, row.department_name].some((value) =>
+      includesText(value, search)
+    );
+    if (!matchesSearch) return false;
+
+    // Department filter
+    if (filterDepartment !== "all" && row.department_name !== filterDepartment) {
+      return false;
+    }
+
+    // Status filter
+    if (filterStatus === "allowed" && !row.effective_access) return false;
+    if (filterStatus === "blocked" && row.effective_access) return false;
+
+    // Company filter
+    if (filterCompany !== "all" && !row.allowed_company_ids.includes(filterCompany)) {
+      return false;
+    }
+
+    return true;
+  });
+
+  // Get unique departments for filter dropdown
+  const departments = Array.from(new Set(accessRows.map((row) => row.department_name).filter(Boolean))).sort() as string[];
 
   return (
     <div className="flex flex-col gap-5">
-      <PageHeader title="ManagePay Settings" description="Control reusable services and employee access to the payment terminal module." />
+      <PageHeader title="ManagePay Settings" description="Control reusable services, module access, and company permissions." />
       <Tabs defaultValue="services">
         <TabsList><TabsTrigger value="services">Services</TabsTrigger>{isAdmin ? <TabsTrigger value="access">Access</TabsTrigger> : null}</TabsList>
         <TabsContent value="services">
@@ -846,22 +995,110 @@ export function ManagePaySettingsPage() {
         {isAdmin ? (
           <TabsContent value="access">
             <Card className="card-elevated">
-              <CardHeader className="flex flex-col gap-3"><CardTitle className="text-base">Employee ManagePay access</CardTitle><SearchInput value={search} onChange={setSearch} /></CardHeader>
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader><TableRow><TableHead>Employee</TableHead><TableHead>Department</TableHead><TableHead>Effective</TableHead><TableHead>Override</TableHead><TableHead className="w-[260px]">Action</TableHead></TableRow></TableHeader>
-                  <TableBody>
-                    {filteredAccessRows.map((row) => (
-                      <TableRow key={row.employee_id}>
-                        <TableCell><div className="font-medium">{row.full_name}</div><div className="text-xs text-muted-foreground">{row.employee_code}</div></TableCell>
-                        <TableCell>{row.department_name || "Unassigned"}</TableCell>
-                        <TableCell>{row.effective_access ? <Badge className="badge-success">Allowed</Badge> : <Badge variant="outline">Blocked</Badge>}</TableCell>
-                        <TableCell>{row.override_allowed === null ? "Default blocked" : row.override_allowed ? "Explicit allow" : "Explicit deny"}</TableCell>
-                        <TableCell className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => setOverride(row.employee_id, true)}>Allow</Button><Button size="sm" variant="outline" onClick={() => setOverride(row.employee_id, false)}>Deny</Button><Button size="sm" variant="ghost" onClick={() => setOverride(row.employee_id, null)}>Default</Button></TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+              <CardHeader className="flex flex-col gap-4">
+                <CardTitle className="text-base">Employee ManagePay access</CardTitle>
+                <div className="flex flex-col gap-3">
+                  <SearchInput value={search} onChange={setSearch} placeholder="Search by name, code, or department..." />
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <Select value={filterDepartment} onValueChange={setFilterDepartment}>
+                      <SelectTrigger className="bg-secondary/50">
+                        <SelectValue placeholder="All departments" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All departments</SelectItem>
+                        {departments.map((dept) => (
+                          <SelectItem key={dept} value={dept}>
+                            {dept}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    <Select value={filterStatus} onValueChange={setFilterStatus}>
+                      <SelectTrigger className="bg-secondary/50">
+                        <SelectValue placeholder="All statuses" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All statuses</SelectItem>
+                        <SelectItem value="allowed">Allowed</SelectItem>
+                        <SelectItem value="blocked">Blocked</SelectItem>
+                      </SelectContent>
+                    </Select>
+
+                    <Select value={filterCompany} onValueChange={setFilterCompany}>
+                      <SelectTrigger className="bg-secondary/50">
+                        <SelectValue placeholder="All companies" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All companies</SelectItem>
+                        {companies.map((company) => (
+                          <SelectItem key={company.id} value={company.id}>
+                            {company.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {(filterDepartment !== "all" || filterStatus !== "all" || filterCompany !== "all") && (
+                    <div className="text-xs text-muted-foreground">
+                      Showing {filteredAccessRows.length} of {accessRows.length} employee{accessRows.length !== 1 ? "s" : ""}
+                    </div>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3">
+                {filteredAccessRows.map((row) => {
+                  const selectedCompanies = companySelections[row.employee_id] ?? [];
+                  return (
+                    <div key={row.employee_id} className="rounded-lg border border-border bg-card p-4">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-medium">{row.full_name}</p>
+                            {row.effective_access ? <Badge className="badge-success">Allowed</Badge> : <Badge variant="outline">Blocked</Badge>}
+                          </div>
+                          <p className="text-xs text-muted-foreground">{row.employee_code} · {row.department_name || "Unassigned"}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {row.override_allowed === null ? "Default blocked" : row.override_allowed ? "Explicit allow" : "Explicit deny"}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button size="sm" variant="outline" onClick={() => setOverride(row.employee_id, true)}>Allow module</Button>
+                          <Button size="sm" variant="outline" onClick={() => setOverride(row.employee_id, false)}>Deny</Button>
+                          <Button size="sm" variant="ghost" onClick={() => setOverride(row.employee_id, null)}>Default</Button>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex flex-col gap-3">
+                        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="text-sm font-medium">Company access</p>
+                            <p className="text-xs text-muted-foreground">Controls which companies this employee can see and invoice from.</p>
+                          </div>
+                          <Button size="sm" onClick={() => saveCompanyAccess(row)}>Save companies</Button>
+                        </div>
+                        {companies.length > 0 ? (
+                          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+                            {companies.map((company) => (
+                              <label key={company.id} className="flex items-start gap-2 rounded-lg border border-border bg-secondary/30 p-3 text-sm">
+                                <Checkbox
+                                  checked={selectedCompanies.includes(company.id)}
+                                  onCheckedChange={(checked) => toggleCompanyAccess(row.employee_id, company.id, checked === true)}
+                                />
+                                <span className="min-w-0">
+                                  <span className="block truncate font-medium">{company.name}</span>
+                                  <span className="block truncate text-xs text-muted-foreground">{company.email}</span>
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="rounded-lg border border-border bg-secondary/30 p-3 text-sm text-muted-foreground">No companies have been created yet.</div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </CardContent>
             </Card>
           </TabsContent>
