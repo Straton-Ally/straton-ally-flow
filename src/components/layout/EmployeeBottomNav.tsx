@@ -23,7 +23,7 @@ import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { useAuth } from '@/hooks/useAuth';
 import { canAccessFlowMath } from '@/lib/flowmath';
-import { canAccessManagePay } from '@/lib/managepay';
+import { canAccessFlowPay } from '@/lib/flowpay';
 import { useEffect } from 'react';
 
 const mainNavItems = [
@@ -48,7 +48,7 @@ export function EmployeeBottomNav() {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [hasFlowMathAccess, setHasFlowMathAccess] = useState(false);
-  const [hasManagePayAccess, setHasManagePayAccess] = useState(false);
+  const [hasFlowPayAccess, setHasFlowPayAccess] = useState(false);
 
   const handleLogout = async () => {
     await signOut();
@@ -59,17 +59,17 @@ export function EmployeeBottomNav() {
   useEffect(() => {
     let mounted = true;
     if (!user?.id) return;
-    Promise.all([canAccessFlowMath(user.id), canAccessManagePay(user.id)])
-      .then(([flowMathAllowed, managePayAllowed]) => {
+    Promise.all([canAccessFlowMath(user.id), canAccessFlowPay(user.id)])
+      .then(([flowMathAllowed, flowPayAllowed]) => {
         if (mounted) {
           setHasFlowMathAccess(flowMathAllowed);
-          setHasManagePayAccess(managePayAllowed);
+          setHasFlowPayAccess(flowPayAllowed);
         }
       })
       .catch(() => {
         if (mounted) {
           setHasFlowMathAccess(false);
-          setHasManagePayAccess(false);
+          setHasFlowPayAccess(false);
         }
       });
     return () => {
@@ -142,14 +142,14 @@ export function EmployeeBottomNav() {
                   <span>FlowMath</span>
                 </Link>
               ) : null}
-              {hasManagePayAccess ? (
+              {hasFlowPayAccess ? (
                 <Link
-                  to="/managepay/dashboard"
+                  to="/flowpay/dashboard"
                   onClick={() => setOpen(false)}
                   className="flex items-center gap-2 p-2.5 rounded-lg text-xs font-medium transition-colors bg-muted text-foreground hover:bg-muted/80"
                 >
-                  <WalletCards className="h-4 w-4" />
-                  <span>ManagePay</span>
+                  <img src="/flowpay.png" alt="FlowPay" className="h-4 w-4 object-contain" />
+                  <span>FlowPay</span>
                 </Link>
               ) : null}
             </div>

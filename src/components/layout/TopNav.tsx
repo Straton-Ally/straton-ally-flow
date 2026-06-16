@@ -119,9 +119,9 @@ export function TopNav() {
             FlowMath
           </Button>
 
-          <Button variant="outline" size="sm" className="hidden h-8 lg:inline-flex" onClick={() => navigate('/managepay/dashboard')}>
-            <WalletCards className="h-4 w-4" />
-            ManagePay
+          <Button variant="outline" size="sm" className="hidden h-8 lg:inline-flex" onClick={() => navigate('/flowpay/dashboard')}>
+            <img src="/flowpay.png" alt="FlowPay" className="h-4 w-4" />
+            FlowPay
           </Button>
 
           <Button

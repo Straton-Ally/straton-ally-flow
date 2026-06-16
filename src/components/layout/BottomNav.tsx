@@ -39,7 +39,7 @@ const moreNavItems = [
   { label: 'Recruitment', href: '/admin/recruitment' },
   { label: 'Work Management', href: '/admin/work' },
   { label: 'FlowMath', href: '/flowmath/dashboard' },
-  { label: 'ManagePay', href: '/managepay/dashboard' },
+  { label: 'FlowPay', href: '/flowpay/dashboard' },
   { label: 'Logs', href: '/admin/logs' },
   { label: 'Settings', href: '/admin/settings' },
 ];

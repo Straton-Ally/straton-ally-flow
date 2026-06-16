@@ -8,7 +8,7 @@ import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { FlowMathRoute } from "@/components/auth/FlowMathRoute";
-import { ManagePayRoute } from "@/components/auth/ManagePayRoute";
+import { FlowPayRoute } from "@/components/auth/FlowPayRoute";
 import { PWAInstallPrompt } from "@/components/ui/pwa-install-prompt";
 
 // Pages
@@ -43,7 +43,7 @@ import SalaryPage from "./pages/employee/Salary";
 import NotificationsPage from "./pages/employee/Notifications";
 import EmployeeSettings from "./pages/employee/Settings";
 import { FlowMathLayout } from "./components/layout/FlowMathLayout";
-import { ManagePayLayout } from "./components/layout/ManagePayLayout";
+import { FlowPayLayout } from "./components/layout/FlowPayLayout";
 import {
   FlowMathAccountsPage,
   FlowMathBillsPage,
@@ -59,15 +59,15 @@ import {
   FlowMathVendorsPage,
 } from "./pages/flowmath/FlowMathPages";
 import {
-  ManagePayClientsPage,
-  ManagePayCompaniesPage,
-  ManagePayClientPreviewPage,
-  ManagePayDashboardPage,
-  ManagePayInvoicesPage,
-  ManagePaySettingsPage,
-  ManagePayTerminalPage,
-} from "./pages/managepay/ManagePayPages";
-import PublicInvoicePay from "./pages/managepay/PublicInvoicePay";
+  FlowPayClientsPage,
+  FlowPayCompaniesPage,
+  FlowPayClientPreviewPage,
+  FlowPayDashboardPage,
+  FlowPayInvoicesPage,
+  FlowPaySettingsPage,
+  FlowPayTerminalPage,
+} from "./pages/flowpay/FlowPayPages";
+import PublicInvoicePay from "./pages/flowpay/PublicInvoicePay";
 
 const queryClient = new QueryClient();
 
@@ -168,23 +168,23 @@ const App = () => (
               <Route path="settings" element={<FlowMathSettingsPage />} />
             </Route>
 
-            {/* ManagePay payment and invoice routes */}
+            {/* FlowPay payment and invoice routes */}
             <Route
-              path="/managepay"
+              path="/flowpay"
               element={
-                <ManagePayRoute>
-                  <ManagePayLayout />
-                </ManagePayRoute>
+                <FlowPayRoute>
+                  <FlowPayLayout />
+                </FlowPayRoute>
               }
             >
               <Route index element={<Navigate to="dashboard" replace />} />
-              <Route path="dashboard" element={<ManagePayDashboardPage />} />
-              <Route path="invoices" element={<ManagePayInvoicesPage />} />
-              <Route path="clients" element={<ManagePayClientsPage />} />
-              <Route path="companies" element={<ManagePayCompaniesPage />} />
-              <Route path="terminal" element={<ManagePayTerminalPage />} />
-              <Route path="settings" element={<ManagePaySettingsPage />} />
-              <Route path="client-preview/:invoiceId" element={<ManagePayClientPreviewPage />} />
+              <Route path="dashboard" element={<FlowPayDashboardPage />} />
+              <Route path="invoices" element={<FlowPayInvoicesPage />} />
+              <Route path="clients" element={<FlowPayClientsPage />} />
+              <Route path="companies" element={<FlowPayCompaniesPage />} />
+              <Route path="terminal" element={<FlowPayTerminalPage />} />
+              <Route path="settings" element={<FlowPaySettingsPage />} />
+              <Route path="client-preview/:invoiceId" element={<FlowPayClientPreviewPage />} />
             </Route>
 
             <Route path="/teams" element={<Navigate to="/employee/work" replace />} />

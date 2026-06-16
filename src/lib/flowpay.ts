@@ -3,10 +3,10 @@ import { supabase } from "@/integrations/supabase/client";
 
 const db = supabase as any;
 
-export type ManagePayInvoiceStatus = "pending" | "paid" | "failed" | "canceled";
-export type ManagePayPaymentMethod = "card" | "mobile" | "qr" | "payment_link";
+export type FlowPayInvoiceStatus = "pending" | "paid" | "failed" | "canceled";
+export type FlowPayPaymentMethod = "card" | "mobile" | "qr" | "payment_link";
 
-export interface ManagePayCompany {
+export interface FlowPayCompany {
   id: string;
   name: string;
   email: string;
@@ -23,7 +23,7 @@ export interface ManagePayCompany {
   updated_at: string;
 }
 
-export interface ManagePayClient {
+export interface FlowPayClient {
   id: string;
   user_id: string;
   name: string;
@@ -37,7 +37,7 @@ export interface ManagePayClient {
   updated_at: string;
 }
 
-export interface ManagePayInvoiceService {
+export interface FlowPayInvoiceService {
   id: string;
   name: string;
   description: string | null;
@@ -46,7 +46,7 @@ export interface ManagePayInvoiceService {
   updated_at: string;
 }
 
-export interface ManagePayLineItem {
+export interface FlowPayLineItem {
   id: string;
   serviceId?: string | null;
   serviceName?: string | null;
@@ -56,10 +56,10 @@ export interface ManagePayLineItem {
   amount: number;
 }
 
-export interface ManagePayInvoiceMetadata {
+export interface FlowPayInvoiceMetadata {
   company?: Record<string, unknown>;
   client?: Record<string, unknown>;
-  items?: ManagePayLineItem[];
+  items?: FlowPayLineItem[];
   subtotal?: number;
   tax?: number;
   taxRate?: number;
@@ -68,7 +68,7 @@ export interface ManagePayInvoiceMetadata {
   paymentUrl?: string;
 }
 
-export interface ManagePayInvoice {
+export interface FlowPayInvoice {
   id: string;
   invoice_number: string;
   seller_id: string;
@@ -78,15 +78,15 @@ export interface ManagePayInvoice {
   currency: string;
   description: string | null;
   due_date: string | null;
-  status: ManagePayInvoiceStatus;
+  status: FlowPayInvoiceStatus;
   stripe_payment_intent_id: string | null;
-  metadata: ManagePayInvoiceMetadata;
+  metadata: FlowPayInvoiceMetadata;
   paid_at: string | null;
   created_at: string;
   updated_at: string;
 }
 
-export interface ManagePayTerminalTransaction {
+export interface FlowPayTerminalTransaction {
   id: string;
   user_id: string;
   amount_in_cents: number;
@@ -97,14 +97,14 @@ export interface ManagePayTerminalTransaction {
   customer_email: string | null;
   customer_name: string | null;
   customer_phone: string | null;
-  payment_method: ManagePayPaymentMethod;
+  payment_method: FlowPayPaymentMethod;
   status: "pending" | "completed" | "failed" | "canceled";
   provider_reference: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
 }
 
-export interface ManagePayAccessCandidate {
+export interface FlowPayAccessCandidate {
   employee_id: string;
   user_id: string;
   employee_code: string;
@@ -115,7 +115,7 @@ export interface ManagePayAccessCandidate {
   allowed_company_ids: string[];
 }
 
-export interface ManagePayInvoiceCreator {
+export interface FlowPayInvoiceCreator {
   user_id: string;
   full_name: string;
   email: string | null;
@@ -130,7 +130,7 @@ export function amountToCents(amount: number) {
   return Math.round(Number(amount || 0) * 100);
 }
 
-export function formatManagePayMoney(cents: number, currency = "GBP") {
+export function formatFlowPayMoney(cents: number, currency = "GBP") {
   try {
     return new Intl.NumberFormat("en-GB", {
       style: "currency",
@@ -150,19 +150,19 @@ export function normalizePaymentBaseUrl(value: string | null | undefined) {
   return withProtocol.replace(/\/+$/, "");
 }
 
-export function getInvoicePaymentUrl(invoice: Pick<ManagePayInvoice, "id" | "metadata">) {
+export function getInvoicePaymentUrl(invoice: Pick<FlowPayInvoice, "id" | "metadata">) {
   const company = (invoice.metadata?.company || {}) as { paymentBaseUrl?: string | null; payment_base_url?: string | null };
   const baseUrl = normalizePaymentBaseUrl(company.paymentBaseUrl || company.payment_base_url);
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   return `${baseUrl || origin}/pay/${invoice.id}`;
 }
 
-export function getInvoiceClientPreviewUrl(invoice: Pick<ManagePayInvoice, "id">) {
+export function getInvoiceClientPreviewUrl(invoice: Pick<FlowPayInvoice, "id">) {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  return `${origin}/managepay/client-preview/${invoice.id}`;
+  return `${origin}/flowpay/client-preview/${invoice.id}`;
 }
 
-export async function uploadManagePayCompanyLogo(file: File, companyName: string) {
+export async function uploadFlowPayCompanyLogo(file: File, companyName: string) {
   if (!file.type.startsWith("image/")) {
     throw new Error("Please upload an image file.");
   }
@@ -180,32 +180,32 @@ export async function uploadManagePayCompanyLogo(file: File, companyName: string
   return data.publicUrl;
 }
 
-export async function canAccessManagePay(userId: string | undefined | null) {
+export async function canAccessFlowPay(userId: string | undefined | null) {
   if (!userId) return false;
   const { data, error } = await db.rpc("can_access_managepay", { _user_id: userId });
   if (error) throw error;
   return Boolean(data);
 }
 
-export async function listManagePayAccessCandidates(): Promise<ManagePayAccessCandidate[]> {
+export async function listFlowPayAccessCandidates(): Promise<FlowPayAccessCandidate[]> {
   const { data, error } = await db.rpc("list_managepay_access_candidates");
   if (error) throw error;
-  return (data ?? []) as ManagePayAccessCandidate[];
+  return (data ?? []) as FlowPayAccessCandidate[];
 }
 
-export async function saveManagePayAccessOverride(employeeId: string, allowed: boolean) {
+export async function saveFlowPayAccessOverride(employeeId: string, allowed: boolean) {
   const { error } = await db
     .from("managepay_access_overrides")
-    .upsert({ employee_id: employeeId, allowed, reason: "Managed from ManagePay settings" }, { onConflict: "employee_id" });
+    .upsert({ employee_id: employeeId, allowed, reason: "Managed from FlowPay settings" }, { onConflict: "employee_id" });
   if (error) throw error;
 }
 
-export async function clearManagePayAccessOverride(employeeId: string) {
+export async function clearFlowPayAccessOverride(employeeId: string) {
   const { error } = await db.from("managepay_access_overrides").delete().eq("employee_id", employeeId);
   if (error) throw error;
 }
 
-export async function setManagePayEmployeeCompanyAccess(employeeId: string, companyIds: string[]) {
+export async function setFlowPayEmployeeCompanyAccess(employeeId: string, companyIds: string[]) {
   const { error } = await db.rpc("set_managepay_employee_company_access", {
     _employee_id: employeeId,
     _company_ids: companyIds,
@@ -213,15 +213,15 @@ export async function setManagePayEmployeeCompanyAccess(employeeId: string, comp
   if (error) throw error;
 }
 
-export async function listManagePayCompanies(activeOnly = false): Promise<ManagePayCompany[]> {
+export async function listFlowPayCompanies(activeOnly = false): Promise<FlowPayCompany[]> {
   let query = db.from("managepay_companies").select("*").order("name");
   if (activeOnly) query = query.eq("is_active", true);
   const { data, error } = await query;
   if (error) throw error;
-  return (data ?? []) as ManagePayCompany[];
+  return (data ?? []) as FlowPayCompany[];
 }
 
-export async function saveManagePayCompany(payload: Partial<ManagePayCompany> & { name: string; email: string }, id?: string) {
+export async function saveFlowPayCompany(payload: Partial<FlowPayCompany> & { name: string; email: string }, id?: string) {
   const query = id
     ? db.from("managepay_companies").update(payload).eq("id", id)
     : db.from("managepay_companies").insert(payload);
@@ -229,38 +229,38 @@ export async function saveManagePayCompany(payload: Partial<ManagePayCompany> & 
   if (error) throw error;
 }
 
-export async function deleteManagePayCompany(id: string) {
+export async function deleteFlowPayCompany(id: string) {
   const { error } = await db.from("managepay_companies").delete().eq("id", id);
   if (error) throw error;
 }
 
-export async function listManagePayClients(): Promise<ManagePayClient[]> {
+export async function listFlowPayClients(): Promise<FlowPayClient[]> {
   const { data, error } = await db.from("managepay_clients").select("*").order("created_at", { ascending: false });
   if (error) throw error;
-  return (data ?? []) as ManagePayClient[];
+  return (data ?? []) as FlowPayClient[];
 }
 
-export async function saveManagePayClient(payload: Partial<ManagePayClient> & { user_id: string; name: string; email: string }, id?: string) {
+export async function saveFlowPayClient(payload: Partial<FlowPayClient> & { user_id: string; name: string; email: string }, id?: string) {
   const query = id
     ? db.from("managepay_clients").update(payload).eq("id", id).select("*").single()
     : db.from("managepay_clients").insert(payload).select("*").single();
   const { data, error } = await query;
   if (error) throw error;
-  return data as ManagePayClient;
+  return data as FlowPayClient;
 }
 
-export async function deleteManagePayClient(id: string) {
+export async function deleteFlowPayClient(id: string) {
   const { error } = await db.from("managepay_clients").delete().eq("id", id);
   if (error) throw error;
 }
 
-export async function listManagePayServices(): Promise<ManagePayInvoiceService[]> {
+export async function listFlowPayServices(): Promise<FlowPayInvoiceService[]> {
   const { data, error } = await db.from("managepay_invoice_services").select("*").order("name");
   if (error) throw error;
-  return (data ?? []) as ManagePayInvoiceService[];
+  return (data ?? []) as FlowPayInvoiceService[];
 }
 
-export async function saveManagePayService(payload: Partial<ManagePayInvoiceService> & { name: string }, id?: string) {
+export async function saveFlowPayService(payload: Partial<FlowPayInvoiceService> & { name: string }, id?: string) {
   const query = id
     ? db.from("managepay_invoice_services").update(payload).eq("id", id)
     : db.from("managepay_invoice_services").insert(payload);
@@ -268,18 +268,18 @@ export async function saveManagePayService(payload: Partial<ManagePayInvoiceServ
   if (error) throw error;
 }
 
-export async function deleteManagePayService(id: string) {
+export async function deleteFlowPayService(id: string) {
   const { error } = await db.from("managepay_invoice_services").delete().eq("id", id);
   if (error) throw error;
 }
 
-export async function listManagePayInvoices(): Promise<ManagePayInvoice[]> {
+export async function listFlowPayInvoices(): Promise<FlowPayInvoice[]> {
   const { data, error } = await db.from("managepay_invoices").select("*").order("created_at", { ascending: false });
   if (error) throw error;
-  return Promise.all(((data ?? []) as ManagePayInvoice[]).map(hydrateInvoiceCompanyBranding));
+  return Promise.all(((data ?? []) as FlowPayInvoice[]).map(hydrateInvoiceCompanyBranding));
 }
 
-export async function listManagePayInvoiceCreators(userIds: string[]): Promise<Record<string, ManagePayInvoiceCreator>> {
+export async function listFlowPayInvoiceCreators(userIds: string[]): Promise<Record<string, FlowPayInvoiceCreator>> {
   const uniqueIds = Array.from(new Set(userIds.filter(Boolean)));
   if (uniqueIds.length === 0) return {};
 
@@ -292,6 +292,7 @@ export async function listManagePayInvoiceCreators(userIds: string[]): Promise<R
 
   const employeeByUserId = new Map((employees ?? []).map((employee: any) => [employee.user_id, employee.employee_id]));
   return Object.fromEntries(
+
     uniqueIds.map((userId) => {
       const profile = (profiles ?? []).find((entry: any) => entry.id === userId);
       return [
@@ -307,7 +308,7 @@ export async function listManagePayInvoiceCreators(userIds: string[]): Promise<R
   );
 }
 
-export async function createManagePayInvoice(payload: {
+export async function createFlowPayInvoice(payload: {
   invoice_number: string;
   seller_id: string;
   client_id: string;
@@ -316,20 +317,20 @@ export async function createManagePayInvoice(payload: {
   currency: string;
   description: string;
   due_date?: string | null;
-  metadata: ManagePayInvoiceMetadata;
+  metadata: FlowPayInvoiceMetadata;
 }) {
   const { data, error } = await db.from("managepay_invoices").insert(payload).select("*").single();
   if (error) throw error;
-  return hydrateInvoiceCompanyBranding(data as ManagePayInvoice);
+  return hydrateInvoiceCompanyBranding(data as FlowPayInvoice);
 }
 
-export async function updateManagePayInvoice(id: string, payload: Partial<ManagePayInvoice>) {
+export async function updateFlowPayInvoice(id: string, payload: Partial<FlowPayInvoice>) {
   const { data, error } = await db.from("managepay_invoices").update(payload).eq("id", id).select("*").single();
   if (error) throw error;
-  return hydrateInvoiceCompanyBranding(data as ManagePayInvoice);
+  return hydrateInvoiceCompanyBranding(data as FlowPayInvoice);
 }
 
-export async function deleteManagePayInvoice(id: string) {
+export async function deleteFlowPayInvoice(id: string) {
   const { data: invoice, error: fetchError } = await db
     .from("managepay_invoices")
     .select("status")
@@ -344,26 +345,26 @@ export async function deleteManagePayInvoice(id: string) {
   if (error) throw error;
 }
 
-export async function getPublicManagePayInvoice(invoiceRef: string): Promise<ManagePayInvoice | null> {
+export async function getPublicFlowPayInvoice(invoiceRef: string): Promise<FlowPayInvoice | null> {
   const { data, error } = await db.rpc("get_managepay_public_invoice", { _invoice_ref: invoiceRef });
   if (error) throw error;
-  const invoice = ((data ?? [])[0] ?? null) as ManagePayInvoice | null;
+  const invoice = ((data ?? [])[0] ?? null) as FlowPayInvoice | null;
   return invoice ? hydrateInvoiceCompanyBranding(invoice) : null;
 }
 
-export async function listManagePayTerminalTransactions(): Promise<ManagePayTerminalTransaction[]> {
+export async function listFlowPayTerminalTransactions(): Promise<FlowPayTerminalTransaction[]> {
   const { data, error } = await db.from("managepay_terminal_transactions").select("*").order("created_at", { ascending: false }).limit(100);
   if (error) throw error;
-  return (data ?? []) as ManagePayTerminalTransaction[];
+  return (data ?? []) as FlowPayTerminalTransaction[];
 }
 
-export async function createManagePayTerminalTransaction(payload: Omit<ManagePayTerminalTransaction, "id" | "created_at">) {
+export async function createFlowPayTerminalTransaction(payload: Omit<FlowPayTerminalTransaction, "id" | "created_at">) {
   const { data, error } = await db.from("managepay_terminal_transactions").insert(payload).select("*").single();
   if (error) throw error;
-  return data as ManagePayTerminalTransaction;
+  return data as FlowPayTerminalTransaction;
 }
 
-async function hydrateInvoiceCompanyBranding(invoice: ManagePayInvoice): Promise<ManagePayInvoice> {
+async function hydrateInvoiceCompanyBranding(invoice: FlowPayInvoice): Promise<FlowPayInvoice> {
   const company = (invoice.metadata?.company || {}) as {
     id?: string;
     logoUrl?: string | null;

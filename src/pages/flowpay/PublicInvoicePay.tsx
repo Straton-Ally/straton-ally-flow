@@ -3,18 +3,18 @@ import { useParams } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { getPublicManagePayInvoice, ManagePayInvoice, ManagePayLineItem, formatManagePayMoney, amountToCents } from "@/lib/managepay";
+import { getPublicFlowPayInvoice, FlowPayInvoice, FlowPayLineItem, formatFlowPayMoney, amountToCents } from "@/lib/flowpay";
 import { CheckCircle2, CreditCard, Loader2 } from "lucide-react";
 
 export default function PublicInvoicePay() {
   const { invoiceId } = useParams();
-  const [invoice, setInvoice] = useState<ManagePayInvoice | null>(null);
+  const [invoice, setInvoice] = useState<FlowPayInvoice | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!invoiceId) return;
-    void getPublicManagePayInvoice(invoiceId)
+    void getPublicFlowPayInvoice(invoiceId)
       .then((next) => {
         setInvoice(next);
         setError(next ? "" : "Invoice not found");
@@ -50,7 +50,7 @@ export default function PublicInvoicePay() {
   return <InvoicePaymentView invoice={invoice} />;
 }
 
-export function InvoicePaymentView({ invoice }: { invoice: ManagePayInvoice }) {
+export function InvoicePaymentView({ invoice }: { invoice: FlowPayInvoice }) {
   const company = (invoice.metadata?.company || {}) as {
     name?: string;
     email?: string;
@@ -68,7 +68,7 @@ export function InvoicePaymentView({ invoice }: { invoice: ManagePayInvoice }) {
   const logoNeedsDarkBg = Boolean(company.logoHasDarkBg ?? company.logo_has_dark_bg);
   const taxId = company.taxId || company.tax_id;
   const client = (invoice.metadata?.client || {}) as { name?: string; email?: string; companyName?: string; address?: string };
-  const items = (invoice.metadata?.items || []) as ManagePayLineItem[];
+  const items = (invoice.metadata?.items || []) as FlowPayLineItem[];
   const subtotal = Number(invoice.metadata?.subtotal ?? 0);
   const tax = Number(invoice.metadata?.tax ?? 0);
   const total = Number(invoice.metadata?.total ?? invoice.amount_in_cents / 100);
@@ -131,8 +131,8 @@ export function InvoicePaymentView({ invoice }: { invoice: ManagePayInvoice }) {
                     <tr key={item.id} className="border-b">
                       <td className="py-3">{item.description}</td>
                       <td className="py-3 text-right">{item.quantity}</td>
-                      <td className="py-3 text-right">{formatManagePayMoney(amountToCents(item.rate), invoice.currency)}</td>
-                      <td className="py-3 text-right">{formatManagePayMoney(amountToCents(item.amount), invoice.currency)}</td>
+                      <td className="py-3 text-right">{formatFlowPayMoney(amountToCents(item.rate), invoice.currency)}</td>
+                      <td className="py-3 text-right">{formatFlowPayMoney(amountToCents(item.amount), invoice.currency)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -140,9 +140,9 @@ export function InvoicePaymentView({ invoice }: { invoice: ManagePayInvoice }) {
             </div>
 
             <div className="ml-auto w-full max-w-sm text-sm">
-              <div className="flex justify-between py-1"><span>Subtotal</span><span>{formatManagePayMoney(amountToCents(subtotal), invoice.currency)}</span></div>
-              <div className="flex justify-between py-1"><span>Tax</span><span>{formatManagePayMoney(amountToCents(tax), invoice.currency)}</span></div>
-              <div className="mt-2 flex justify-between border-t pt-3 text-lg font-semibold"><span>Total</span><span>{formatManagePayMoney(amountToCents(total), invoice.currency)}</span></div>
+              <div className="flex justify-between py-1"><span>Subtotal</span><span>{formatFlowPayMoney(amountToCents(subtotal), invoice.currency)}</span></div>
+              <div className="flex justify-between py-1"><span>Tax</span><span>{formatFlowPayMoney(amountToCents(tax), invoice.currency)}</span></div>
+              <div className="mt-2 flex justify-between border-t pt-3 text-lg font-semibold"><span>Total</span><span>{formatFlowPayMoney(amountToCents(total), invoice.currency)}</span></div>
             </div>
 
             {invoice.metadata?.notes ? <p className="text-sm text-muted-foreground">{invoice.metadata.notes}</p> : null}
@@ -155,7 +155,7 @@ export function InvoicePaymentView({ invoice }: { invoice: ManagePayInvoice }) {
             ) : (
               <Button size="lg" className="self-end">
                 <CreditCard className="h-4 w-4" />
-                Pay {formatManagePayMoney(invoice.amount_in_cents, invoice.currency)}
+                Pay {formatFlowPayMoney(invoice.amount_in_cents, invoice.currency)}
               </Button>
             )}
           </CardContent>

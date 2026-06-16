@@ -7,14 +7,14 @@ import { signOut } from "@/lib/auth";
 import { useAuth } from "@/hooks/useAuth";
 
 const navItems = [
-  { label: "Dashboard", href: "/managepay/dashboard", icon: LayoutDashboard },
-  { label: "Invoices", href: "/managepay/invoices", icon: FileText },
-  { label: "Clients", href: "/managepay/clients", icon: Users },
-  { label: "Companies", href: "/managepay/companies", icon: Building2 },
-  { label: "Settings", href: "/managepay/settings", icon: Settings },
+  { label: "Dashboard", href: "/flowpay/dashboard", icon: LayoutDashboard },
+  { label: "Invoices", href: "/flowpay/invoices", icon: FileText },
+  { label: "Clients", href: "/flowpay/clients", icon: Users },
+  { label: "Companies", href: "/flowpay/companies", icon: Building2 },
+  { label: "Settings", href: "/flowpay/settings", icon: Settings },
 ];
 
-export function ManagePayLayout() {
+export function FlowPayLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -29,11 +29,12 @@ export function ManagePayLayout() {
       <header className="sticky top-0 z-50 w-full border-b border-border bg-card/90 backdrop-blur-xl supports-[backdrop-filter]:bg-card/80">
         <div className="flex h-16 items-center justify-between gap-3 px-4 md:px-6">
           <div className="flex min-w-0 items-center gap-4">
-            <Link to="/managepay/dashboard" className="flex items-center gap-2 font-semibold" aria-label="ManagePay dashboard">
-              <span className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <WalletCards className="h-4 w-4" />
-              </span>
-              <span className="hidden text-lg sm:inline">ManagePay</span>
+            <Link to="/flowpay/dashboard" className="relative flex h-10 w-[150px] shrink-0 items-center overflow-hidden" aria-label="FlowPay dashboard">
+              <img
+                src="/flowpay.png"
+                alt="FlowPay"
+                className="h-full w-full object-contain object-left"
+              />
             </Link>
             <nav className="hidden max-w-[70vw] items-center gap-1 overflow-x-auto lg:flex">
               {navItems.map((item) => {

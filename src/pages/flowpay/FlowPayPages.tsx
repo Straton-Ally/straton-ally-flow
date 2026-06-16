@@ -17,50 +17,50 @@ import { useAuth } from "@/hooks/useAuth";
 import {
   amountToCents,
   centsToAmount,
-  clearManagePayAccessOverride,
-  createManagePayInvoice,
-  createManagePayTerminalTransaction,
-  deleteManagePayClient,
-  deleteManagePayCompany,
-  deleteManagePayInvoice,
-  deleteManagePayService,
-  formatManagePayMoney,
+  clearFlowPayAccessOverride,
+  createFlowPayInvoice,
+  createFlowPayTerminalTransaction,
+  deleteFlowPayClient,
+  deleteFlowPayCompany,
+  deleteFlowPayInvoice,
+  deleteFlowPayService,
+  formatFlowPayMoney,
   getInvoiceClientPreviewUrl,
   getInvoicePaymentUrl,
-  getPublicManagePayInvoice,
-  listManagePayAccessCandidates,
-  listManagePayClients,
-  listManagePayCompanies,
-  listManagePayInvoiceCreators,
-  listManagePayInvoices,
-  listManagePayServices,
-  listManagePayTerminalTransactions,
-  ManagePayAccessCandidate,
-  ManagePayClient,
-  ManagePayCompany,
-  ManagePayInvoice,
-  ManagePayInvoiceCreator,
-  ManagePayInvoiceService,
-  ManagePayLineItem,
-  ManagePayPaymentMethod,
-  ManagePayTerminalTransaction,
-  saveManagePayAccessOverride,
-  saveManagePayClient,
-  saveManagePayCompany,
-  saveManagePayService,
-  setManagePayEmployeeCompanyAccess,
-  updateManagePayInvoice,
-  uploadManagePayCompanyLogo,
-} from "@/lib/managepay";
+  getPublicFlowPayInvoice,
+  listFlowPayAccessCandidates,
+  listFlowPayClients,
+  listFlowPayCompanies,
+  listFlowPayInvoiceCreators,
+  listFlowPayInvoices,
+  listFlowPayServices,
+  listFlowPayTerminalTransactions,
+  FlowPayAccessCandidate,
+  FlowPayClient,
+  FlowPayCompany,
+  FlowPayInvoice,
+  FlowPayInvoiceCreator,
+  FlowPayInvoiceService,
+  FlowPayLineItem,
+  FlowPayPaymentMethod,
+  FlowPayTerminalTransaction,
+  saveFlowPayAccessOverride,
+  saveFlowPayClient,
+  saveFlowPayCompany,
+  saveFlowPayService,
+  setFlowPayEmployeeCompanyAccess,
+  updateFlowPayInvoice,
+  uploadFlowPayCompanyLogo,
+} from "@/lib/flowpay";
 import { cn } from "@/lib/utils";
 import { Copy, Eye, ImagePlus, Mail, MessageCircle, Pencil, Plus, QrCode, Search, Trash2 } from "lucide-react";
-import { InvoicePaymentView } from "@/pages/managepay/PublicInvoicePay";
+import { InvoicePaymentView } from "@/pages/flowpay/PublicInvoicePay";
 import { useParams } from "react-router-dom";
 
 const includesText = (value: unknown, query: string) => String(value ?? "").toLowerCase().includes(query.toLowerCase().trim());
 const newInvoiceNo = () => `INV-${format(new Date(), "yyyyMMdd-HHmmss")}`;
-const newLine = (): ManagePayLineItem => ({ id: crypto.randomUUID(), description: "", quantity: 1, rate: 0, amount: 0 });
-const formatManagePayDateTime = (value: string) => {
+const newLine = (): FlowPayLineItem => ({ id: crypto.randomUUID(), description: "", quantity: 1, rate: 0, amount: 0 });
+const formatFlowPayDateTime = (value: string) => {
   try {
     return format(new Date(value), "dd MMM yyyy, h:mm a");
   } catch {
@@ -104,22 +104,22 @@ async function copyText(value: string, title: string, toast: ReturnType<typeof u
   toast({ title });
 }
 
-export function ManagePayDashboardPage() {
-  const [invoices, setInvoices] = useState<ManagePayInvoice[]>([]);
-  const [clients, setClients] = useState<ManagePayClient[]>([]);
-  const [companies, setCompanies] = useState<ManagePayCompany[]>([]);
-  const [invoiceCreators, setInvoiceCreators] = useState<Record<string, ManagePayInvoiceCreator>>({});
+export function FlowPayDashboardPage() {
+  const [invoices, setInvoices] = useState<FlowPayInvoice[]>([]);
+  const [clients, setClients] = useState<FlowPayClient[]>([]);
+  const [companies, setCompanies] = useState<FlowPayCompany[]>([]);
+  const [invoiceCreators, setInvoiceCreators] = useState<Record<string, FlowPayInvoiceCreator>>({});
   const [companyFilter, setCompanyFilter] = useState("all");
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
 
   useEffect(() => {
     const refresh = async () => {
-      const [nextInvoices, nextClients, nextCompanies] = await Promise.all([listManagePayInvoices(), listManagePayClients(), listManagePayCompanies()]);
+      const [nextInvoices, nextClients, nextCompanies] = await Promise.all([listFlowPayInvoices(), listFlowPayClients(), listFlowPayCompanies()]);
       setInvoices(nextInvoices);
       setClients(nextClients);
       setCompanies(nextCompanies);
-      setInvoiceCreators(isAdmin ? await listManagePayInvoiceCreators(nextInvoices.map((invoice) => invoice.seller_id)) : {});
+      setInvoiceCreators(isAdmin ? await listFlowPayInvoiceCreators(nextInvoices.map((invoice) => invoice.seller_id)) : {});
     };
 
     void refresh();
@@ -137,7 +137,7 @@ export function ManagePayDashboardPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <PageHeader title="ManagePay Dashboard" description="Revenue, payment links, clients, and invoice status in one operational view." />
+      <PageHeader title="FlowPay Dashboard" description="Revenue, payment links, clients, and invoice status in one operational view." />
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Select value={companyFilter} onValueChange={setCompanyFilter}>
           <SelectTrigger className="w-full sm:w-72"><SelectValue placeholder="Filter by company" /></SelectTrigger>
@@ -149,8 +149,8 @@ export function ManagePayDashboardPage() {
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {[
-          ["Paid revenue", formatManagePayMoney(paidRevenue)],
-          ["Total invoiced", formatManagePayMoney(totalInvoiced)],
+          ["Paid revenue", formatFlowPayMoney(paidRevenue)],
+          ["Total invoiced", formatFlowPayMoney(totalInvoiced)],
           ["Invoices", String(visibleInvoices.length)],
           ["Pending", String(pending)],
           ["Active clients", String(clients.filter((client) => client.is_active).length)],
@@ -171,9 +171,9 @@ export function ManagePayDashboardPage() {
             creators={invoiceCreators}
             showCreator={isAdmin}
             onRefresh={async () => {
-              const nextInvoices = await listManagePayInvoices();
+              const nextInvoices = await listFlowPayInvoices();
               setInvoices(nextInvoices);
-              setInvoiceCreators(isAdmin ? await listManagePayInvoiceCreators(nextInvoices.map((invoice) => invoice.seller_id)) : {});
+              setInvoiceCreators(isAdmin ? await listFlowPayInvoiceCreators(nextInvoices.map((invoice) => invoice.seller_id)) : {});
             }}
           />
         </CardContent>
@@ -182,10 +182,10 @@ export function ManagePayDashboardPage() {
   );
 }
 
-export function ManagePayCompaniesPage() {
-  const [companies, setCompanies] = useState<ManagePayCompany[]>([]);
+export function FlowPayCompaniesPage() {
+  const [companies, setCompanies] = useState<FlowPayCompany[]>([]);
   const [search, setSearch] = useState("");
-  const [editing, setEditing] = useState<ManagePayCompany | null>(null);
+  const [editing, setEditing] = useState<FlowPayCompany | null>(null);
   const [form, setForm] = useState({ name: "", email: "", address: "", phone: "", website: "", logo_url: "", payment_base_url: "", tax_id: "", logo_has_dark_bg: false, is_active: true });
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
@@ -193,7 +193,7 @@ export function ManagePayCompaniesPage() {
   const { toast } = useToast();
   const isAdmin = user?.role === "admin";
 
-  const refresh = () => listManagePayCompanies().then(setCompanies);
+  const refresh = () => listFlowPayCompanies().then(setCompanies);
   useEffect(() => { void refresh(); }, []);
 
   const reset = () => {
@@ -205,8 +205,8 @@ export function ManagePayCompaniesPage() {
   const save = async () => {
     try {
       setIsUploadingLogo(true);
-      const logoUrl = logoFile ? await uploadManagePayCompanyLogo(logoFile, form.name) : form.logo_url;
-      await saveManagePayCompany({ ...form, logo_url: logoUrl }, editing?.id);
+      const logoUrl = logoFile ? await uploadFlowPayCompanyLogo(logoFile, form.name) : form.logo_url;
+      await saveFlowPayCompany({ ...form, logo_url: logoUrl }, editing?.id);
       reset();
       await refresh();
       toast({ title: editing ? "Company updated" : "Company created" });
@@ -284,7 +284,7 @@ export function ManagePayCompaniesPage() {
                     {isAdmin ? (
                       <div className="flex justify-end gap-1">
                         <Button size="icon" variant="ghost" onClick={() => { setEditing(company); setLogoFile(null); setForm({ name: company.name, email: company.email, address: company.address || "", phone: company.phone || "", website: company.website || "", logo_url: company.logo_url || "", payment_base_url: company.payment_base_url || "", tax_id: company.tax_id || "", logo_has_dark_bg: company.logo_has_dark_bg, is_active: company.is_active }); }}><Pencil className="h-4 w-4" /></Button>
-                        <Button size="icon" variant="ghost" onClick={async () => { if (window.confirm(`Delete ${company.name}?`)) { await deleteManagePayCompany(company.id); await refresh(); } }}><Trash2 className="h-4 w-4" /></Button>
+                        <Button size="icon" variant="ghost" onClick={async () => { if (window.confirm(`Delete ${company.name}?`)) { await deleteFlowPayCompany(company.id); await refresh(); } }}><Trash2 className="h-4 w-4" /></Button>
                       </div>
                     ) : null}
                   </TableCell>
@@ -298,14 +298,14 @@ export function ManagePayCompaniesPage() {
   );
 }
 
-export function ManagePayClientsPage() {
-  const [clients, setClients] = useState<ManagePayClient[]>([]);
+export function FlowPayClientsPage() {
+  const [clients, setClients] = useState<FlowPayClient[]>([]);
   const [search, setSearch] = useState("");
-  const [editing, setEditing] = useState<ManagePayClient | null>(null);
+  const [editing, setEditing] = useState<FlowPayClient | null>(null);
   const [form, setForm] = useState({ name: "", email: "", company_name: "", phone: "", address: "", notes: "", is_active: true });
   const { user } = useAuth();
   const { toast } = useToast();
-  const refresh = () => listManagePayClients().then(setClients);
+  const refresh = () => listFlowPayClients().then(setClients);
   useEffect(() => { void refresh(); }, []);
 
   const reset = () => {
@@ -321,7 +321,7 @@ export function ManagePayClientsPage() {
     }
 
     try {
-      await saveManagePayClient({ ...form, name: form.name.trim(), email: form.email.trim(), user_id: user.id }, editing?.id);
+      await saveFlowPayClient({ ...form, name: form.name.trim(), email: form.email.trim(), user_id: user.id }, editing?.id);
       reset();
       await refresh();
       toast({ title: editing ? "Client updated" : "Client created" });
@@ -371,7 +371,7 @@ export function ManagePayClientsPage() {
                   <TableCell><div className="font-medium">{client.name}</div><div className="text-xs text-muted-foreground">{client.company_name || "Individual"}</div></TableCell>
                   <TableCell><div>{client.email}</div><div className="text-xs text-muted-foreground">{client.phone}</div></TableCell>
                   <TableCell>{client.is_active ? <Badge className="badge-success">Active</Badge> : <Badge variant="outline">Archived</Badge>}</TableCell>
-                  <TableCell><div className="flex justify-end gap-1"><Button size="icon" variant="ghost" onClick={() => { setEditing(client); setForm({ name: client.name, email: client.email, company_name: client.company_name || "", phone: client.phone || "", address: client.address || "", notes: client.notes || "", is_active: client.is_active }); }}><Pencil className="h-4 w-4" /></Button><Button size="icon" variant="ghost" onClick={async () => { if (window.confirm(`Delete ${client.name}?`)) { await deleteManagePayClient(client.id); await refresh(); } }}><Trash2 className="h-4 w-4" /></Button></div></TableCell>
+                  <TableCell><div className="flex justify-end gap-1"><Button size="icon" variant="ghost" onClick={() => { setEditing(client); setForm({ name: client.name, email: client.email, company_name: client.company_name || "", phone: client.phone || "", address: client.address || "", notes: client.notes || "", is_active: client.is_active }); }}><Pencil className="h-4 w-4" /></Button><Button size="icon" variant="ghost" onClick={async () => { if (window.confirm(`Delete ${client.name}?`)) { await deleteFlowPayClient(client.id); await refresh(); } }}><Trash2 className="h-4 w-4" /></Button></div></TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -382,12 +382,12 @@ export function ManagePayClientsPage() {
   );
 }
 
-export function ManagePayInvoicesPage() {
-  const [companies, setCompanies] = useState<ManagePayCompany[]>([]);
-  const [clients, setClients] = useState<ManagePayClient[]>([]);
-  const [services, setServices] = useState<ManagePayInvoiceService[]>([]);
-  const [invoices, setInvoices] = useState<ManagePayInvoice[]>([]);
-  const [shareInvoice, setShareInvoice] = useState<ManagePayInvoice | null>(null);
+export function FlowPayInvoicesPage() {
+  const [companies, setCompanies] = useState<FlowPayCompany[]>([]);
+  const [clients, setClients] = useState<FlowPayClient[]>([]);
+  const [services, setServices] = useState<FlowPayInvoiceService[]>([]);
+  const [invoices, setInvoices] = useState<FlowPayInvoice[]>([]);
+  const [shareInvoice, setShareInvoice] = useState<FlowPayInvoice | null>(null);
   const [companyId, setCompanyId] = useState("");
   const [clientId, setClientId] = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState(newInvoiceNo());
@@ -395,7 +395,7 @@ export function ManagePayInvoicesPage() {
   const [currency, setCurrency] = useState("GBP");
   const [taxRate, setTaxRate] = useState("");
   const [notes, setNotes] = useState("");
-  const [items, setItems] = useState<ManagePayLineItem[]>([newLine()]);
+  const [items, setItems] = useState<FlowPayLineItem[]>([newLine()]);
   const [clientDialogOpen, setClientDialogOpen] = useState(false);
   const [clientForm, setClientForm] = useState({ name: "", email: "", company_name: "", phone: "", address: "", notes: "" });
   const [isSavingClient, setIsSavingClient] = useState(false);
@@ -404,10 +404,10 @@ export function ManagePayInvoicesPage() {
 
   const refresh = async () => {
     const [nextCompanies, nextClients, nextServices, nextInvoices] = await Promise.all([
-      listManagePayCompanies(true),
-      listManagePayClients(),
-      listManagePayServices(),
-      listManagePayInvoices(),
+      listFlowPayCompanies(true),
+      listFlowPayClients(),
+      listFlowPayServices(),
+      listFlowPayInvoices(),
     ]);
     const activeClients = nextClients.filter((client) => client.is_active);
     setCompanies(nextCompanies);
@@ -426,7 +426,7 @@ export function ManagePayInvoicesPage() {
   const tax = subtotal * (Number(taxRate || 0) / 100);
   const total = subtotal + tax;
 
-  const updateItem = (id: string, updates: Partial<ManagePayLineItem>) => {
+  const updateItem = (id: string, updates: Partial<FlowPayLineItem>) => {
     setItems((current) => current.map((item) => {
       if (item.id !== id) return item;
       const next = { ...item, ...updates };
@@ -448,7 +448,7 @@ export function ManagePayInvoicesPage() {
 
     try {
       setIsSavingClient(true);
-      const client = await saveManagePayClient({
+      const client = await saveFlowPayClient({
         ...clientForm,
         user_id: user.id,
         name: clientForm.name.trim(),
@@ -470,7 +470,7 @@ export function ManagePayInvoicesPage() {
   const saveInvoice = async () => {
     if (!user?.id) return;
     if (!selectedCompany) {
-      toast({ title: "No company access", description: "Ask an admin to assign at least one ManagePay company.", variant: "destructive" });
+      toast({ title: "No company access", description: "Ask an admin to assign at least one FlowPay company.", variant: "destructive" });
       return;
     }
     if (!selectedClient) {
@@ -514,7 +514,7 @@ export function ManagePayInvoicesPage() {
         total,
         notes,
       };
-      const invoice = await createManagePayInvoice({
+      const invoice = await createFlowPayInvoice({
         invoice_number: invoiceNumber,
         seller_id: user.id,
         client_id: selectedClient.id,
@@ -525,7 +525,7 @@ export function ManagePayInvoicesPage() {
         due_date: dueDate ? new Date(dueDate).toISOString() : null,
         metadata,
       });
-      const withUrl = await updateManagePayInvoice(invoice.id, { metadata: { ...metadata, paymentUrl: getInvoicePaymentUrl({ ...invoice, metadata }) } as any });
+      const withUrl = await updateFlowPayInvoice(invoice.id, { metadata: { ...metadata, paymentUrl: getInvoicePaymentUrl({ ...invoice, metadata }) } as any });
       setShareInvoice(withUrl);
       setInvoiceNumber(newInvoiceNo());
       setItems([newLine()]);
@@ -581,7 +581,7 @@ export function ManagePayInvoicesPage() {
                       <TableCell><Input value={item.description} onChange={(e) => updateItem(item.id, { description: e.target.value })} /></TableCell>
                       <TableCell><Input className="w-20" type="number" min="0" value={item.quantity} onChange={(e) => updateItem(item.id, { quantity: Number(e.target.value) })} /></TableCell>
                       <TableCell><Input className="w-28" type="number" min="0" value={item.rate} onChange={(e) => updateItem(item.id, { rate: Number(e.target.value) })} /></TableCell>
-                      <TableCell>{formatManagePayMoney(amountToCents(item.amount), currency)}</TableCell>
+                      <TableCell>{formatFlowPayMoney(amountToCents(item.amount), currency)}</TableCell>
                       <TableCell><Button size="icon" variant="ghost" disabled={items.length === 1} onClick={() => setItems((current) => current.filter((row) => row.id !== item.id))}><Trash2 className="h-4 w-4" /></Button></TableCell>
                     </TableRow>
                   ))}
@@ -641,7 +641,7 @@ export function ManagePayInvoicesPage() {
   );
 }
 
-function InvoicePreview({ company, client, invoiceNumber, dueDate, currency, items, subtotal, tax, total, notes }: { company?: ManagePayCompany; client?: ManagePayClient; invoiceNumber: string; dueDate: string; currency: string; items: ManagePayLineItem[]; subtotal: number; tax: number; total: number; notes: string }) {
+function InvoicePreview({ company, client, invoiceNumber, dueDate, currency, items, subtotal, tax, total, notes }: { company?: FlowPayCompany; client?: FlowPayClient; invoiceNumber: string; dueDate: string; currency: string; items: FlowPayLineItem[]; subtotal: number; tax: number; total: number; notes: string }) {
   return (
     <Card className="card-elevated">
       <CardHeader><CardTitle className="text-base">Preview</CardTitle></CardHeader>
@@ -676,14 +676,14 @@ function InvoicePreview({ company, client, invoiceNumber, dueDate, currency, ite
           {items.filter((item) => item.description).map((item) => (
             <div key={item.id} className="flex justify-between gap-3 text-sm">
               <span>{item.description}</span>
-              <span>{formatManagePayMoney(amountToCents(item.amount), currency)}</span>
+              <span>{formatFlowPayMoney(amountToCents(item.amount), currency)}</span>
             </div>
           ))}
         </div>
         <div className="border-t pt-3 text-sm">
-          <div className="flex justify-between"><span>Subtotal</span><span>{formatManagePayMoney(amountToCents(subtotal), currency)}</span></div>
-          <div className="flex justify-between"><span>Tax</span><span>{formatManagePayMoney(amountToCents(tax), currency)}</span></div>
-          <div className="mt-2 flex justify-between text-lg font-semibold"><span>Total</span><span>{formatManagePayMoney(amountToCents(total), currency)}</span></div>
+          <div className="flex justify-between"><span>Subtotal</span><span>{formatFlowPayMoney(amountToCents(subtotal), currency)}</span></div>
+          <div className="flex justify-between"><span>Tax</span><span>{formatFlowPayMoney(amountToCents(tax), currency)}</span></div>
+          <div className="mt-2 flex justify-between text-lg font-semibold"><span>Total</span><span>{formatFlowPayMoney(amountToCents(total), currency)}</span></div>
         </div>
         {notes ? <p className="text-sm text-muted-foreground">{notes}</p> : null}
       </CardContent>
@@ -698,15 +698,15 @@ function InvoicesTable({
   creators = {},
   showCreator = false,
 }: {
-  invoices: ManagePayInvoice[];
+  invoices: FlowPayInvoice[];
   onRefresh: () => void | Promise<void>;
-  onShare?: (invoice: ManagePayInvoice) => void;
-  creators?: Record<string, ManagePayInvoiceCreator>;
+  onShare?: (invoice: FlowPayInvoice) => void;
+  creators?: Record<string, FlowPayInvoiceCreator>;
   showCreator?: boolean;
 }) {
   const { toast } = useToast();
 
-  const removeInvoice = async (invoice: ManagePayInvoice) => {
+  const removeInvoice = async (invoice: FlowPayInvoice) => {
     if (invoice.status === "paid") {
       toast({ title: "Paid invoices cannot be deleted", description: "This invoice has already been paid and must remain in the record." });
       return;
@@ -715,7 +715,7 @@ function InvoicesTable({
     if (!window.confirm(`Delete invoice ${invoice.invoice_number}? This cannot be undone.`)) return;
 
     try {
-      await deleteManagePayInvoice(invoice.id);
+      await deleteFlowPayInvoice(invoice.id);
       await onRefresh();
       toast({ title: "Invoice deleted" });
     } catch (error) {
@@ -751,13 +751,13 @@ function InvoicesTable({
                   <TableCell>
                     <div className="font-medium">{creator?.full_name || "Unknown user"}</div>
                     <div className="text-xs text-muted-foreground">
-                      {formatManagePayDateTime(invoice.created_at)}
+                      {formatFlowPayDateTime(invoice.created_at)}
                       {creator?.employee_code ? ` - ${creator.employee_code}` : ""}
                     </div>
                   </TableCell>
                 ) : null}
                 <TableCell>{company?.name || "Company"}</TableCell>
-                <TableCell>{formatManagePayMoney(invoice.amount_in_cents, invoice.currency)}</TableCell>
+                <TableCell>{formatFlowPayMoney(invoice.amount_in_cents, invoice.currency)}</TableCell>
                 <TableCell><StatusBadge status={invoice.status} /></TableCell>
                 <TableCell>
                   <div className="flex justify-end gap-1">
@@ -776,7 +776,7 @@ function InvoicesTable({
   );
 }
 
-function ShareDialog({ invoice, onOpenChange }: { invoice: ManagePayInvoice | null; onOpenChange: (open: boolean) => void }) {
+function ShareDialog({ invoice, onOpenChange }: { invoice: FlowPayInvoice | null; onOpenChange: (open: boolean) => void }) {
   const { toast } = useToast();
   if (!invoice) return null;
   const link = getInvoicePaymentUrl(invoice);
@@ -801,12 +801,12 @@ function ShareDialog({ invoice, onOpenChange }: { invoice: ManagePayInvoice | nu
   );
 }
 
-export function ManagePayTerminalPage() {
-  const [transactions, setTransactions] = useState<ManagePayTerminalTransaction[]>([]);
-  const [form, setForm] = useState({ amount: "", currency: "GBP", description: "", customer_email: "", customer_name: "", customer_phone: "", payment_method: "card" as ManagePayPaymentMethod });
+export function FlowPayTerminalPage() {
+  const [transactions, setTransactions] = useState<FlowPayTerminalTransaction[]>([]);
+  const [form, setForm] = useState({ amount: "", currency: "GBP", description: "", customer_email: "", customer_name: "", customer_phone: "", payment_method: "card" as FlowPayPaymentMethod });
   const { user } = useAuth();
   const { toast } = useToast();
-  const refresh = () => listManagePayTerminalTransactions().then(setTransactions);
+  const refresh = () => listFlowPayTerminalTransactions().then(setTransactions);
   useEffect(() => { void refresh(); }, []);
 
   const amount = Number(form.amount || 0);
@@ -816,7 +816,7 @@ export function ManagePayTerminalPage() {
   const processPayment = async () => {
     if (!user?.id || amount <= 0) return;
     try {
-      await createManagePayTerminalTransaction({
+      await createFlowPayTerminalTransaction({
         user_id: user.id,
         amount_in_cents: amountToCents(amount),
         fee_in_cents: amountToCents(fee),
@@ -851,10 +851,10 @@ export function ManagePayTerminalPage() {
             <Input placeholder="Customer email" value={form.customer_email} onChange={(e) => setForm({ ...form, customer_email: e.target.value })} />
             <Input placeholder="Customer name" value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} />
             <Input placeholder="Customer phone" value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} />
-            <Select value={form.payment_method} onValueChange={(payment_method: ManagePayPaymentMethod) => setForm({ ...form, payment_method })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="card">Card</SelectItem><SelectItem value="mobile">Mobile payment</SelectItem><SelectItem value="qr">QR payment</SelectItem><SelectItem value="payment_link">Payment link</SelectItem></SelectContent></Select>
+            <Select value={form.payment_method} onValueChange={(payment_method: FlowPayPaymentMethod) => setForm({ ...form, payment_method })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="card">Card</SelectItem><SelectItem value="mobile">Mobile payment</SelectItem><SelectItem value="qr">QR payment</SelectItem><SelectItem value="payment_link">Payment link</SelectItem></SelectContent></Select>
             <div className="surface-tile text-sm">
-              <div className="flex justify-between"><span>Processing fee</span><span>{formatManagePayMoney(amountToCents(fee), form.currency)}</span></div>
-              <div className="flex justify-between font-semibold"><span>Total</span><span>{formatManagePayMoney(amountToCents(total), form.currency)}</span></div>
+              <div className="flex justify-between"><span>Processing fee</span><span>{formatFlowPayMoney(amountToCents(fee), form.currency)}</span></div>
+              <div className="flex justify-between font-semibold"><span>Total</span><span>{formatFlowPayMoney(amountToCents(total), form.currency)}</span></div>
             </div>
             <Button onClick={processPayment}>Process</Button>
           </CardContent>
@@ -864,7 +864,7 @@ export function ManagePayTerminalPage() {
           <CardContent className="p-0">
             <Table>
               <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Customer</TableHead><TableHead>Method</TableHead><TableHead>Total</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
-              <TableBody>{transactions.map((transaction) => <TableRow key={transaction.id}><TableCell>{format(new Date(transaction.created_at), "PP p")}</TableCell><TableCell>{transaction.customer_name || transaction.customer_email || "Walk-in"}</TableCell><TableCell>{transaction.payment_method}</TableCell><TableCell>{formatManagePayMoney(transaction.total_in_cents, transaction.currency)}</TableCell><TableCell><StatusBadge status={transaction.status} /></TableCell></TableRow>)}</TableBody>
+              <TableBody>{transactions.map((transaction) => <TableRow key={transaction.id}><TableCell>{format(new Date(transaction.created_at), "PP p")}</TableCell><TableCell>{transaction.customer_name || transaction.customer_email || "Walk-in"}</TableCell><TableCell>{transaction.payment_method}</TableCell><TableCell>{formatFlowPayMoney(transaction.total_in_cents, transaction.currency)}</TableCell><TableCell><StatusBadge status={transaction.status} /></TableCell></TableRow>)}</TableBody>
             </Table>
           </CardContent>
         </Card>
@@ -873,12 +873,12 @@ export function ManagePayTerminalPage() {
   );
 }
 
-export function ManagePaySettingsPage() {
+export function FlowPaySettingsPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
-  const [services, setServices] = useState<ManagePayInvoiceService[]>([]);
-  const [accessRows, setAccessRows] = useState<ManagePayAccessCandidate[]>([]);
-  const [companies, setCompanies] = useState<ManagePayCompany[]>([]);
+  const [services, setServices] = useState<FlowPayInvoiceService[]>([]);
+  const [accessRows, setAccessRows] = useState<FlowPayAccessCandidate[]>([]);
+  const [companies, setCompanies] = useState<FlowPayCompany[]>([]);
   const [companySelections, setCompanySelections] = useState<Record<string, string[]>>({});
   const [serviceForm, setServiceForm] = useState({ name: "", description: "", default_rate: "" });
   const [search, setSearch] = useState("");
@@ -889,9 +889,9 @@ export function ManagePaySettingsPage() {
 
   const refresh = async () => {
     const [nextServices, nextAccess, nextCompanies] = await Promise.all([
-      listManagePayServices(),
-      isAdmin ? listManagePayAccessCandidates() : Promise.resolve([]),
-      isAdmin ? listManagePayCompanies() : Promise.resolve([]),
+      listFlowPayServices(),
+      isAdmin ? listFlowPayAccessCandidates() : Promise.resolve([]),
+      isAdmin ? listFlowPayCompanies() : Promise.resolve([]),
     ]);
     setServices(nextServices);
     setAccessRows(nextAccess);
@@ -902,7 +902,7 @@ export function ManagePaySettingsPage() {
 
   const saveService = async () => {
     try {
-      await saveManagePayService({ name: serviceForm.name, description: serviceForm.description, default_rate: amountToCents(Number(serviceForm.default_rate || 0)) });
+      await saveFlowPayService({ name: serviceForm.name, description: serviceForm.description, default_rate: amountToCents(Number(serviceForm.default_rate || 0)) });
       setServiceForm({ name: "", description: "", default_rate: "" });
       await refresh();
       toast({ title: "Service saved" });
@@ -913,8 +913,8 @@ export function ManagePaySettingsPage() {
 
   const setOverride = async (employeeId: string, allowed: boolean | null) => {
     try {
-      if (allowed === null) await clearManagePayAccessOverride(employeeId);
-      else await saveManagePayAccessOverride(employeeId, allowed);
+      if (allowed === null) await clearFlowPayAccessOverride(employeeId);
+      else await saveFlowPayAccessOverride(employeeId, allowed);
       await refresh();
       toast({ title: "Access updated" });
     } catch (error) {
@@ -931,9 +931,9 @@ export function ManagePaySettingsPage() {
     });
   };
 
-  const saveCompanyAccess = async (row: ManagePayAccessCandidate) => {
+  const saveCompanyAccess = async (row: FlowPayAccessCandidate) => {
     try {
-      await setManagePayEmployeeCompanyAccess(row.employee_id, companySelections[row.employee_id] ?? []);
+      await setFlowPayEmployeeCompanyAccess(row.employee_id, companySelections[row.employee_id] ?? []);
       await refresh();
       toast({ title: "Company access saved" });
     } catch (error) {
@@ -970,7 +970,7 @@ export function ManagePaySettingsPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <PageHeader title="ManagePay Settings" description="Control reusable services, module access, and company permissions." />
+      <PageHeader title="FlowPay Settings" description="Control reusable services, module access, and company permissions." />
       <Tabs defaultValue="services">
         <TabsList><TabsTrigger value="services">Services</TabsTrigger>{isAdmin ? <TabsTrigger value="access">Access</TabsTrigger> : null}</TabsList>
         <TabsContent value="services">
@@ -987,7 +987,7 @@ export function ManagePaySettingsPage() {
               ) : null}
               <Table>
                 <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Description</TableHead><TableHead>Default rate</TableHead><TableHead className="w-16" /></TableRow></TableHeader>
-                <TableBody>{services.map((service) => <TableRow key={service.id}><TableCell>{service.name}</TableCell><TableCell>{service.description}</TableCell><TableCell>{formatManagePayMoney(service.default_rate)}</TableCell><TableCell>{isAdmin ? <Button size="icon" variant="ghost" onClick={async () => { await deleteManagePayService(service.id); await refresh(); }}><Trash2 className="h-4 w-4" /></Button> : null}</TableCell></TableRow>)}</TableBody>
+                <TableBody>{services.map((service) => <TableRow key={service.id}><TableCell>{service.name}</TableCell><TableCell>{service.description}</TableCell><TableCell>{formatFlowPayMoney(service.default_rate)}</TableCell><TableCell>{isAdmin ? <Button size="icon" variant="ghost" onClick={async () => { await deleteFlowPayService(service.id); await refresh(); }}><Trash2 className="h-4 w-4" /></Button> : null}</TableCell></TableRow>)}</TableBody>
               </Table>
             </CardContent>
           </Card>
@@ -996,7 +996,7 @@ export function ManagePaySettingsPage() {
           <TabsContent value="access">
             <Card className="card-elevated">
               <CardHeader className="flex flex-col gap-4">
-                <CardTitle className="text-base">Employee ManagePay access</CardTitle>
+                <CardTitle className="text-base">Employee FlowPay access</CardTitle>
                 <div className="flex flex-col gap-3">
                   <SearchInput value={search} onChange={setSearch} placeholder="Search by name, code, or department..." />
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -1108,15 +1108,15 @@ export function ManagePaySettingsPage() {
   );
 }
 
-export function ManagePayClientPreviewPage() {
+export function FlowPayClientPreviewPage() {
   const { invoiceId } = useParams();
-  const [invoice, setInvoice] = useState<ManagePayInvoice | null>(null);
+  const [invoice, setInvoice] = useState<FlowPayInvoice | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!invoiceId) return;
-    void getPublicManagePayInvoice(invoiceId)
+    void getPublicFlowPayInvoice(invoiceId)
       .then((next) => {
         setInvoice(next);
         setError(next ? "" : "Invoice not found");

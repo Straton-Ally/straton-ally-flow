@@ -1,10 +1,10 @@
-# ManagePay Project Blueprint
+# FlowPay Project Blueprint
 
 This document captures the structure, database model, access rules, and functional behavior of the project so a similar product can be recreated inside another existing project. It intentionally avoids a tech-stack overview and focuses on product architecture and implementation details.
 
 ## 1. Product Summary
 
-ManagePay is a payment and invoice management system for authenticated business users. It supports:
+FlowPay is a payment and invoice management system for authenticated business users. It supports:
 
 - User sign up, sign in, password recovery, profile editing, and role-based access.
 - Admin-managed companies with branding, contact details, payment URLs, and active/inactive states.

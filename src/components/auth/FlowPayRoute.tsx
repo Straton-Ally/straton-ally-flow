@@ -2,9 +2,9 @@ import { Navigate, useLocation } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { canAccessManagePay } from "@/lib/managepay";
+import { canAccessFlowPay } from "@/lib/flowpay";
 
-export function ManagePayRoute({ children }: { children: React.ReactNode }) {
+export function FlowPayRoute({ children }: { children: React.ReactNode }) {
   const { user, session, isLoading } = useAuth();
   const location = useLocation();
   const [allowed, setAllowed] = useState(false);
@@ -20,7 +20,7 @@ export function ManagePayRoute({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        const result = await canAccessManagePay(user.id);
+        const result = await canAccessFlowPay(user.id);
         if (mounted) setAllowed(result);
       } catch {
         if (mounted) setAllowed(false);
@@ -40,7 +40,7 @@ export function ManagePayRoute({ children }: { children: React.ReactNode }) {
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-muted-foreground">Loading ManagePay...</p>
+          <p className="text-muted-foreground">Loading FlowPay...</p>
         </div>
       </div>
     );
