@@ -23,7 +23,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 const app = express();
 
-// Middleware for JSON parsing (except webhook endpoint)
+// Middleware: JSON parsing (except webhook endpoint)
 app.use((req, res, next) => {
   if (req.originalUrl === '/api/webhooks/stripe') {
     next();
@@ -78,6 +78,10 @@ function resolveStaticPath(pathname) {
 
   return stats.isFile() ? filePath : null;
 }
+
+// ------------------------------
+// API ROUTES FIRST (important!)
+// ------------------------------
 
 // API: Create Stripe Payment Intent
 app.post('/api/create-payment-intent', async (req, res) => {
@@ -159,7 +163,7 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
         if (error) {
           console.error('Error updating invoice:', error);
         } else {
-          console.log(`Invoice ${invoiceId} marked as paid');
+          console.log(`Invoice ${invoiceId} marked as paid`);
         }
       }
       break;
@@ -172,12 +176,10 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
   res.json({ received: true });
 });
 
-// Serve static files and handle client-side routing
+// ------------------------------
+// THEN STATIC FILES & ROUTING
+// ------------------------------
 app.use((req, res, next) => {
-  if (req.path.startsWith('/api')) {
-    return next(); // Let API routes handle their own responses
-  }
-
   const staticPath = resolveStaticPath(req.path);
 
   if (staticPath) {
@@ -191,6 +193,11 @@ app.use((req, res, next) => {
   if (req.method === 'GET' && acceptsHtml && !looksLikeAsset) {
     sendFile(res, join(distDir, 'index.html'));
     return;
+  }
+
+  // If it's an API route that we didn't handle, return 404
+  if (req.path.startsWith('/api')) {
+    return res.status(404).json({ error: 'API route not found' });
   }
 
   res.status(404).send('Not found');
