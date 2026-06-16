@@ -649,7 +649,10 @@ function InvoicePreview({ company, client, invoiceNumber, dueDate, currency, ite
         <div className="flex flex-col gap-4">
           <div className="flex min-w-0 items-center justify-between gap-3">
             {company?.logo_url ? (
-              <div className={cn("flex h-14 min-w-0 max-w-[190px] shrink items-center justify-start rounded-lg", company.logo_has_dark_bg && "bg-foreground p-2")}>
+              <div className={cn(
+                "flex h-14 min-w-0 max-w-[190px] shrink items-center justify-start rounded-lg p-2",
+                company.logo_has_dark_bg ? "bg-slate-900" : "bg-white"
+              )}>
                 <img src={company.logo_url} alt={company.name || "Company logo"} className="max-h-12 max-w-full object-contain" />
               </div>
             ) : null}

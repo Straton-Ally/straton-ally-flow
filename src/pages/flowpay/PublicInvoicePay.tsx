@@ -7,6 +7,7 @@ import { getPublicFlowPayInvoice, FlowPayInvoice, FlowPayLineItem, formatFlowPay
 import { CheckCircle2, CreditCard, Loader2, XCircle } from "lucide-react";
 import { loadStripe, StripeElementsOptions } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
+import { cn } from "@/lib/utils";
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || import.meta.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "");
 
@@ -183,7 +184,10 @@ export default function PublicInvoicePay() {
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex items-start gap-3">
                     {logoUrl ? (
-                      <div className={logoNeedsDarkBg ? "rounded-lg bg-foreground p-3" : ""}>
+                      <div className={cn(
+                        "rounded-lg p-3",
+                        logoNeedsDarkBg ? "bg-slate-900" : "bg-white"
+                      )}>
                         <img src={logoUrl} alt={company.name || "Company logo"} className="h-14 max-w-[180px] object-contain" />
                       </div>
                     ) : null}
@@ -320,7 +324,10 @@ export function InvoicePaymentView({ invoice }: { invoice: FlowPayInvoice }) {
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex items-start gap-3">
                     {logoUrl ? (
-                      <div className={logoNeedsDarkBg ? "rounded-lg bg-foreground p-3" : ""}>
+                      <div className={cn(
+                        "rounded-lg p-3",
+                        logoNeedsDarkBg ? "bg-slate-900" : "bg-white"
+                      )}>
                         <img src={logoUrl} alt={company.name || "Company logo"} className="h-14 max-w-[180px] object-contain" />
                       </div>
                     ) : null}
