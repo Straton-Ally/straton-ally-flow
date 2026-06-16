@@ -292,7 +292,6 @@ export async function listFlowPayInvoiceCreators(userIds: string[]): Promise<Rec
 
   const employeeByUserId = new Map((employees ?? []).map((employee: any) => [employee.user_id, employee.employee_id]));
   return Object.fromEntries(
-
     uniqueIds.map((userId) => {
       const profile = (profiles ?? []).find((entry: any) => entry.id === userId);
       return [

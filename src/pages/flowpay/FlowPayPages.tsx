@@ -525,7 +525,7 @@ export function FlowPayInvoicesPage() {
         due_date: dueDate ? new Date(dueDate).toISOString() : null,
         metadata,
       });
-      const withUrl = await updateFlowPayInvoice(invoice.id, { metadata: { ...metadata, paymentUrl: getInvoicePaymentUrl({ ...invoice, metadata }) } as any });
+      const withUrl = await updateFlowPayInvoice(invoice.id, { metadata: { ...metadata, paymentUrl: getInvoicePaymentUrl({ ...invoice, metadata }) } as Partial<FlowPayInvoiceMetadata> });
       setShareInvoice(withUrl);
       setInvoiceNumber(newInvoiceNo());
       setItems([newLine()]);
