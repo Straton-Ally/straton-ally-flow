@@ -88,6 +88,12 @@ export default function PublicInvoicePay() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ invoiceId }),
           });
+
+          if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`API Error (${response.status}): ${errText}`);
+          }
+
           const data = await response.json();
           setClientSecret(data.clientSecret);
         }
