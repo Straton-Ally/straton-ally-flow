@@ -110,63 +110,25 @@ export function AttendanceStats() {
 
         const { data } = await supabase
           .from('attendance')
-          .select('date,status,in_time,out_time,total_work_minutes,notes')
+          .select('date,status,in_time,check_in_at,out_time,total_work_minutes,notes')
           .eq('employee_id', employee.id)
           .gte('date', format(subDays(new Date(), 370), 'yyyy-MM-dd'))
           .lte('date', format(new Date(), 'yyyy-MM-dd'))
           .order('date', { ascending: true });
 
-        const rows = (data ?? []).map((record) => ({
+        const rows: AttendanceRow[] = (data ?? []).map((record) => ({
           date: record.date,
           status: ((record.in_time || record.check_in_at) && record.status === 'absent' ? 'present' : record.status) as 'present' | 'absent' | 'half_day' | 'leave',
           in_time: record.in_time,
           check_in_at: record.check_in_at,
           out_time: record.out_time,
-          total_hours: record.notes?.includes('Total hours') ? 
-            record.notes.split('Total hours: ')[1] : null
+          total_work_minutes: record.total_work_minutes,
+          notes: record.notes,
         }));
 
-        setMonthlyData(processedData);
-
-        // Calculate statistics
-        const totalDays = processedData.length;
-        const presentDays = processedData.filter(r => r.status === 'present').length;
-        const absentDays = processedData.filter(r => r.status === 'absent').length;
-        const halfDays = processedData.filter(r => r.status === 'half_day').length;
-        const leaveDays = processedData.filter(r => r.status === 'leave').length;
-
-        // Calculate average hours
-        const validHours = processedData
-          .filter(d => d.total_hours)
-          .map(d => {
-            const [hours, minutes] = d.total_hours!.split(':').map(Number);
-            return hours * 60 + minutes;
-          });
-        
-        const avgMinutes = validHours.length > 0 ? 
-          Math.round(validHours.reduce((a, b) => a + b, 0) / validHours.length) : 0;
-        const avgHours = Math.floor(avgMinutes / 60);
-        const avgMins = avgMinutes % 60;
-        const averageHours = `${avgHours}:${avgMins.toString().padStart(2, '0')}`;
-
-        // Calculate punctuality (percentage of days where check-in was before 9:00 AM)
-        const onTimeDays = processedData.filter(d => {
-          if (!d.in_time || d.status !== 'present') return false;
-          const [hours] = d.in_time.split(':').map(Number);
-          return hours < 9;
-        }).length;
-        
-        const punctuality = presentDays > 0 ? Math.round((onTimeDays / presentDays) * 100) : 0;
-
-        setStats({
-          totalDays,
-          presentDays,
-          absentDays,
-          halfDays,
-          leaveDays,
-          averageHours,
-          punctuality
-        });
+        setAllData(rows);
+      } finally {
+        setIsLoading(false);
       }
     };
 

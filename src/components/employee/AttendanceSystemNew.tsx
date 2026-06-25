@@ -1293,19 +1293,16 @@ export function AttendanceSystem() {
             <div className="mt-1 text-sm text-muted-foreground">
               Distance: {locationInfo.distance === null ? (locationInfo.reason ? 'Not available' : 'Checking...') : `${Math.round(locationInfo.distance)}m`}
             </div>
+          )}
+        </AlertDescription>
+      </Alert>
 
-            <div className="grid gap-2 sm:grid-cols-4 lg:w-[420px] lg:grid-cols-2">
-              {timeChips.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <div key={item.label} className="rounded-xl border bg-muted/20 p-3 dark:bg-muted/10">
-                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon className="h-3.5 w-3.5" /> {item.label}</p>
-                    <p className="mt-1 truncate text-lg font-bold text-foreground">{item.value}</p>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Clock className="h-5 w-5" />
+            Current Time
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1525,7 +1522,7 @@ export function AttendanceSystem() {
                     )}
                   </div>
                 )}
-              </>
+              </div>
             )}
           </div>
         </CardContent>
