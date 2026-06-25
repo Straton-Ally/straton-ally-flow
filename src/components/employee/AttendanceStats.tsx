@@ -37,10 +37,12 @@ const STATUS_META: Record<AttendanceStatus, { label: string; color: string; clas
 const FALLBACK_START_MINUTES = 9 * 60 + 15;
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-const asStatus = (value: string): AttendanceStatus => {
+const asStatus = (value: string | null | undefined): AttendanceStatus => {
   if (value === 'absent' || value === 'half_day' || value === 'leave') return value;
   return 'present';
 };
+
+const getStatusMeta = (status: AttendanceStatus | null | undefined) => (status ? STATUS_META[status] : null);
 
 const timeToMinutes = (time: string | null) => {
   if (!time) return null;
@@ -118,7 +120,7 @@ export function AttendanceStats() {
 
         const rows: AttendanceRow[] = (data ?? []).map((record) => ({
           date: record.date,
-          status: ((record.in_time || record.check_in_at) && record.status === 'absent' ? 'present' : record.status) as 'present' | 'absent' | 'half_day' | 'leave',
+          status: (record.in_time || record.check_in_at) && record.status === 'absent' ? 'present' : asStatus(record.status),
           in_time: record.in_time,
           check_in_at: record.check_in_at,
           out_time: record.out_time,
@@ -193,6 +195,7 @@ export function AttendanceStats() {
         label: format(day, 'MMM d'),
         status: record?.status ?? null,
         hours: record ? Math.round((getWorkMinutes(record) / 60) * 10) / 10 : 0,
+        inTime: record?.in_time ?? null,
         isFuture,
       };
     });
@@ -337,7 +340,7 @@ export function AttendanceStats() {
                     }
 
                     const status = day.status;
-                    const meta = status ? STATUS_META[status] : null;
+                    const meta = getStatusMeta(status);
                     const statusText = meta?.label ?? (day.isFuture ? 'Upcoming' : 'No record');
                     const title = `${day.label} - ${statusText}${day.hours ? ` - ${day.hours}h` : ''}${day.inTime ? ` - In ${day.inTime.slice(0, 5)}` : ''}`;
 
@@ -389,11 +392,16 @@ export function AttendanceStats() {
 
               <div className="mt-3 grid grid-cols-7 gap-1.5 rounded-xl border bg-background/60 p-2 dark:bg-background/30">
                 {last35Days.map((day) => (
-                  <div
-                    key={day.key}
-                    title={`${day.label}${day.status ? ` - ${STATUS_META[day.status].label}` : ''}`}
-                    className={`aspect-square rounded-[5px] ${day.status ? STATUS_META[day.status].className : 'bg-muted/40'}`}
-                  />
+                  (() => {
+                    const meta = getStatusMeta(day.status);
+                    return (
+                      <div
+                        key={day.key}
+                        title={`${day.label}${meta ? ` - ${meta.label}` : ''}`}
+                        className={`aspect-square rounded-[5px] ${meta ? meta.className : 'bg-muted/40'}`}
+                      />
+                    );
+                  })()
                 ))}
               </div>
 
