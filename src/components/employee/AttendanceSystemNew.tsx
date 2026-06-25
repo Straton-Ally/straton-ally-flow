@@ -176,6 +176,29 @@ export function AttendanceSystem() {
     localStorage.setItem('attendance_time_format', use12HourTime ? '12h' : '24h');
   }, [use12HourTime]);
 
+  useEffect(() => {
+    if (!attendance?.id || !attendance.break_start_at || attendance.out_time) {
+      lastBreakSyncRef.current = 0;
+      return;
+    }
+
+    const nowMs = currentTime.getTime();
+    if (nowMs - lastBreakSyncRef.current < 15000) return;
+    lastBreakSyncRef.current = nowMs;
+
+    const breakStart = new Date(attendance.break_start_at);
+    const activeBreakSeconds = Math.max(0, Math.floor((nowMs - breakStart.getTime()) / 1000));
+    const liveBreakDuration = formatDuration((attendance.break_total_minutes ?? 0) * 60 + activeBreakSeconds);
+
+    void supabase
+      .from('attendance')
+      .update({
+        break_duration: liveBreakDuration,
+        status: 'present',
+      })
+      .eq('id', attendance.id);
+  }, [attendance?.id, attendance?.break_start_at, attendance?.out_time, attendance?.break_total_minutes, currentTime]);
+
   // Fetch today's attendance and check location
   useEffect(() => {
     void (async () => {
@@ -302,6 +325,20 @@ export function AttendanceSystem() {
     const nowMins = currentTime.getHours() * 60 + currentTime.getMinutes() + currentTime.getSeconds() / 60;
     const dutyMins = Math.max(0, nowMins - inMins - breakMinutesSoFar);
     return Math.round(dutyMins * 60);
+  };
+
+  const getLiveBreakTotalSeconds = (): number | null => {
+    if (!attendance) return null;
+
+    let totalSeconds = Math.max(0, (attendance.break_total_minutes ?? 0) * 60);
+    if (!attendance.break_start_at || attendance.out_time) return totalSeconds;
+
+    const breakStart = new Date(attendance.break_start_at);
+    const breakStartMs = breakStart.getTime();
+    if (Number.isNaN(breakStartMs)) return totalSeconds;
+
+    totalSeconds += Math.max(0, Math.floor((currentTime.getTime() - breakStartMs) / 1000));
+    return totalSeconds;
   };
 
   const formatDuration = (totalSeconds: number) => {
@@ -991,6 +1028,7 @@ export function AttendanceSystem() {
           break_total_minutes: billableBreakMinutes,
           break_duration: breakDurationStr,
           total_work_minutes: workMinutes,
+          status: 'present',
           notes: `Total hours: ${totalHoursStr}`,
         })
         .eq('id', attendance.id);
@@ -1011,6 +1049,7 @@ export function AttendanceSystem() {
               break_total_minutes: billableBreakMinutes,
               break_duration: breakDurationStr,
               total_work_minutes: workMinutes,
+              status: 'present',
               notes: `Total hours: ${totalHoursStr}`,
             }
           : null,
@@ -1059,7 +1098,7 @@ export function AttendanceSystem() {
         .eq('id', attendance.id);
       if (error) throw error;
 
-      setAttendance((prev) => (prev ? { ...prev, break_start_at: nowIso } : prev));
+      setAttendance((prev) => (prev ? { ...prev, break_start_at: nowIso, break_duration: 'Break running: 0m 0s', status: 'present' } : prev));
       toast({ title: "Break started" });
     } catch (error: unknown) {
       toast({
@@ -1152,9 +1191,10 @@ export function AttendanceSystem() {
     setIsLoading(true);
     try {
       const breakStart = new Date(attendance.break_start_at);
-      const additionalMinutes = Math.max(0, Math.floor((Date.now() - breakStart.getTime()) / 60000));
+      const additionalSeconds = Math.max(0, Math.floor((Date.now() - breakStart.getTime()) / 1000));
+      const additionalMinutes = Math.ceil(additionalSeconds / 60);
       const newTotal = (attendance.break_total_minutes ?? 0) + additionalMinutes;
-      const breakDurationStr = `${newTotal} minutes`;
+      const breakDurationStr = formatDuration((attendance.break_total_minutes ?? 0) * 60 + additionalSeconds);
 
       const { error } = await supabase
         .from('attendance')
@@ -1171,7 +1211,7 @@ export function AttendanceSystem() {
       if (error) throw error;
 
       setAttendance((prev) =>
-        prev ? { ...prev, break_start_at: null, break_total_minutes: newTotal, break_duration: breakDurationStr } : prev,
+        prev ? { ...prev, break_start_at: null, break_total_minutes: newTotal, break_duration: breakDurationStr, status: 'present' } : prev,
       );
       toast({ title: "Break ended" });
     } catch (error: unknown) {
@@ -1185,16 +1225,22 @@ export function AttendanceSystem() {
     }
   };
 
+  const getEffectiveAttendanceStatus = (record: AttendanceRecord) => {
+    if (record.in_time && record.status === 'absent') return 'present';
+    return record.status;
+  };
+
   const getStatusBadge = () => {
-    if (!attendance) return <Badge variant="secondary">Not Marked</Badge>;
-    
-    switch (attendance.status) {
+    if (!attendance) return <Badge variant="outline" className="rounded-full">Not marked</Badge>;
+
+    const effectiveStatus = getEffectiveAttendanceStatus(attendance);
+    switch (effectiveStatus) {
       case 'present':
-        return <Badge className="bg-green-100 text-green-800">Present</Badge>;
+        return <Badge className="rounded-full bg-emerald-500/12 text-emerald-700 hover:bg-emerald-500/12 dark:text-emerald-300">Present</Badge>;
       case 'half_day':
-        return <Badge className="bg-orange-100 text-orange-800">Half Day</Badge>;
+        return <Badge className="rounded-full bg-amber-500/12 text-amber-700 hover:bg-amber-500/12 dark:text-amber-300">Half day</Badge>;
       default:
-        return <Badge variant="secondary">{attendance.status}</Badge>;
+        return <Badge variant="secondary" className="rounded-full capitalize">{effectiveStatus.replace('_', ' ')}</Badge>;
     }
   };
 
@@ -1247,22 +1293,17 @@ export function AttendanceSystem() {
             <div className="mt-1 text-sm text-muted-foreground">
               Distance: {locationInfo.distance === null ? (locationInfo.reason ? 'Not available' : 'Checking...') : `${Math.round(locationInfo.distance)}m`}
             </div>
-          )}
-        </AlertDescription>
-      </Alert>
 
-      {/* Current Time */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-4">
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="h-5 w-5" />
-              Current Time
-            </CardTitle>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">24h</span>
-              <Switch checked={use12HourTime} onCheckedChange={setUse12HourTime} />
-              <span className="text-xs text-muted-foreground">12h</span>
+            <div className="grid gap-2 sm:grid-cols-4 lg:w-[420px] lg:grid-cols-2">
+              {timeChips.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <div key={item.label} className="rounded-xl border bg-muted/20 p-3 dark:bg-muted/10">
+                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Icon className="h-3.5 w-3.5" /> {item.label}</p>
+                    <p className="mt-1 truncate text-lg font-bold text-foreground">{item.value}</p>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </CardHeader>
@@ -1393,8 +1434,7 @@ export function AttendanceSystem() {
             )}
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex flex-wrap gap-3 pt-4">
+          <div className="mt-4 flex flex-wrap gap-2">
             {!attendance?.in_time ? (
               <Button 
                 onClick={handleCheckIn}
@@ -1407,78 +1447,49 @@ export function AttendanceSystem() {
             ) : (
               <>
                 {!attendance?.out_time && (
-                  <Button 
-                    onClick={handleCheckOut}
-                    disabled={!locationInfo.isAllowed || isLoading}
-                    className="flex items-center gap-2"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    Check Out
+                  <Button onClick={handleCheckOut} disabled={!locationInfo.isAllowed || isLoading} className="h-10 rounded-xl px-4">
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Check out
                   </Button>
                 )}
                 {attendance?.in_time && !attendance?.out_time && (
                   attendance.break_start_at ? (
-                    <Button
-                      variant="outline"
-                      onClick={handleBreakEnd}
-                      disabled={!locationInfo.isAllowed || isLoading}
-                      className="flex items-center gap-2"
-                    >
-                      <Coffee className="h-4 w-4" />
-                      End Break
+                    <Button variant="outline" onClick={handleBreakEnd} disabled={!locationInfo.isAllowed || isLoading} className="h-10 rounded-xl px-4">
+                      <Coffee className="mr-2 h-4 w-4" />
+                      End break
                     </Button>
                   ) : (
-                    <Button
-                      variant="outline"
-                      onClick={handleBreakStart}
-                      disabled={!locationInfo.isAllowed || isLoading}
-                      className="flex items-center gap-2"
-                    >
-                      <Coffee className="h-4 w-4" />
-                      Start Break
+                    <Button variant="outline" onClick={handleBreakStart} disabled={!locationInfo.isAllowed || isLoading} className="h-10 rounded-xl px-4">
+                      <Coffee className="mr-2 h-4 w-4" />
+                      Start break
                     </Button>
                   )
                 )}
                 {attendance?.in_time && !attendance?.out_time && !earlyCheckoutRequest && todayEarlyRequestCount < 3 && (
-                  <Button
-                    variant="outline"
-                    onClick={() => setEarlyRequestModalOpen(true)}
-                    className="flex items-center gap-2"
-                  >
-                    <LogOutIcon className="h-4 w-4" />
-                    Request early check-out
+                  <Button variant="outline" onClick={() => setEarlyRequestModalOpen(true)} className="h-10 rounded-xl px-4">
+                    <LogOutIcon className="mr-2 h-4 w-4" />
+                    Early out
                   </Button>
                 )}
-                {attendance?.in_time && !attendance?.out_time && (!earlyCheckoutRequest || earlyCheckoutRequest.status === 'declined') && todayEarlyRequestCount >= 3 && (
-                  <p className="text-sm text-muted-foreground">You can only submit 3 early check-out requests per day.</p>
+              </>
+            )}
+          </div>
+
+          <div className="mt-3 space-y-2">
+            {attendance?.in_time && !attendance?.out_time && (!earlyCheckoutRequest || earlyCheckoutRequest.status === 'declined') && todayEarlyRequestCount >= 3 && (
+              <p className="text-sm text-muted-foreground">You can only submit 3 early check-out requests per day.</p>
+            )}
+            {attendance?.in_time && !attendance?.out_time && earlyCheckoutRequest && earlyCheckoutRequest.status !== 'declined' && (
+              <div className="flex flex-wrap items-center gap-2">
+                {earlyCheckoutRequest.status === 'pending' && (
+                  <Badge variant="secondary" className="rounded-full">
+                    Early leave {formatTime12h(earlyCheckoutRequest.requested_checkout_time)} · Pending
+                  </Badge>
                 )}
-                {attendance?.in_time && !attendance?.out_time && earlyCheckoutRequest && earlyCheckoutRequest.status !== 'declined' && (
-                  <div className="flex items-center gap-2">
-                    {earlyCheckoutRequest.status === 'pending' && (
-                      <Badge variant="secondary">
-                        Early leave requested for {formatTime12h(earlyCheckoutRequest.requested_checkout_time)} – Pending
-                      </Badge>
-                    )}
-                    {earlyCheckoutRequest.status === 'approved' && (
-                      <Badge variant="default" className="bg-green-600">
-                        Early check-out approved: {formatTime12h(earlyCheckoutRequest.requested_checkout_time)}
-                      </Badge>
-                    )}
-                  </div>
-                )}
-                {attendance?.in_time && !attendance?.out_time && earlyCheckoutRequest?.status === 'declined' && todayEarlyRequestCount < 3 && (
-                  <>
-                    <Badge variant="destructive" className="mr-1">Early check-out declined</Badge>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setEarlyRequestModalOpen(true)}
-                      className="flex items-center gap-2"
-                    >
-                      <LogOutIcon className="h-4 w-4" />
-                      Request again
-                    </Button>
-                  </>
+                {earlyCheckoutRequest.status === 'approved' && (
+                  <Badge className="rounded-full bg-emerald-600 hover:bg-emerald-600">
+                    Early out approved · {formatTime12h(earlyCheckoutRequest.requested_checkout_time)}
+                  </Badge>
                 )}
                 {attendance?.in_time && !attendance?.out_time && !overtimeRequest && (
                   <Button
@@ -1517,17 +1528,67 @@ export function AttendanceSystem() {
               </>
             )}
           </div>
-          {scheduledEndTime && attendance?.in_time && !attendance?.out_time && (
-            <p className="text-xs text-muted-foreground pt-2">
-              Your scheduled end time today is {formatTime12h(scheduledEndTime)}. You can check out at or after that time
-              {approvedCheckoutTime ? ` or at your approved time ${formatTime12h(approvedCheckoutTime)}` : ''}.
-            </p>
-          )}
         </CardContent>
       </Card>
 
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+        <Card className="rounded-2xl border bg-card shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center justify-between text-sm font-semibold">
+              <span className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" /> Access</span>
+              <Badge className={locationInfo.isAllowed ? 'rounded-full bg-emerald-500/12 text-emerald-700 hover:bg-emerald-500/12 dark:text-emerald-300' : 'rounded-full'} variant={locationInfo.isAllowed ? 'secondary' : 'destructive'}>
+                {locationChecking ? 'Checking' : locationInfo.isAllowed ? 'Allowed' : 'Blocked'}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 pt-0">
+            <Alert className={locationChecking ? 'rounded-xl border-border bg-muted/20 dark:bg-muted/10' : locationInfo.isAllowed ? 'rounded-xl border-emerald-500/25 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200' : 'rounded-xl border-destructive/30 bg-destructive/10'}>
+              <MapPin className="h-4 w-4" />
+              <AlertDescription className="text-xs">
+                {locationChecking
+                  ? `Checking${locationInfo.officeName ? ` · ${locationInfo.officeName}` : ''}`
+                  : locationInfo.isAllowed
+                    ? `Allowed${locationInfo.officeName ? ` · ${locationInfo.officeName}` : ''}`
+                    : locationInfo.reason || 'Not allowed. Attendance cannot be marked.'}
+              </AlertDescription>
+            </Alert>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-xl border bg-muted/20 p-3 dark:bg-muted/10">
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Wifi className="h-3.5 w-3.5" /> IP</p>
+                <p className="mt-1 truncate text-sm font-semibold text-foreground">{locationInfo.currentIP || 'Checking'}</p>
+              </div>
+              <div className="rounded-xl border bg-muted/20 p-3 dark:bg-muted/10">
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Radar className="h-3.5 w-3.5" /> Distance</p>
+                <p className="mt-1 text-sm font-semibold text-foreground">
+                  {locationInfo.requireGeoFencing ? (locationInfo.distance === null ? 'Checking' : `${Math.round(locationInfo.distance)}m`) : 'None'}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl border bg-card shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold"><CalendarCheck className="h-4 w-4 text-sky-600 dark:text-sky-400" /> Preferences</CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="flex items-center justify-between rounded-xl border bg-muted/20 p-3 dark:bg-muted/10">
+              <div>
+                <p className="text-sm font-medium text-foreground">Clock format</p>
+                <p className="text-xs text-muted-foreground">12h or 24h display</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">24</span>
+                <Switch checked={use12HourTime} onCheckedChange={setUse12HourTime} />
+                <span className="text-xs text-muted-foreground">12</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       <Dialog open={earlyRequestModalOpen} onOpenChange={setEarlyRequestModalOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="rounded-2xl sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Request early check-out</DialogTitle>
           </DialogHeader>
@@ -1537,27 +1598,18 @@ export function AttendanceSystem() {
           <div className="space-y-4 pt-2">
             <div className="space-y-2">
               <Label>Reason for leaving early *</Label>
-              <Textarea
-                placeholder="e.g. Personal appointment, family matter..."
-                value={earlyRequestReason}
-                onChange={(e) => setEarlyRequestReason(e.target.value)}
-                rows={3}
-              />
+              <Textarea placeholder="e.g. Personal appointment, family matter..." value={earlyRequestReason} onChange={(e) => setEarlyRequestReason(e.target.value)} rows={3} className="rounded-xl" />
             </div>
             <div className="space-y-2">
               <Label>Time you want to leave *</Label>
-              <Input
-                type="time"
-                value={earlyRequestTime}
-                onChange={(e) => setEarlyRequestTime(e.target.value)}
-              />
+              <Input type="time" value={earlyRequestTime} onChange={(e) => setEarlyRequestTime(e.target.value)} className="rounded-xl" />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEarlyRequestModalOpen(false)} disabled={earlyRequestSubmitting}>
+            <Button variant="outline" onClick={() => setEarlyRequestModalOpen(false)} disabled={earlyRequestSubmitting} className="rounded-xl">
               Cancel
             </Button>
-            <Button onClick={handleSubmitEarlyCheckoutRequest} disabled={earlyRequestSubmitting}>
+            <Button onClick={handleSubmitEarlyCheckoutRequest} disabled={earlyRequestSubmitting} className="rounded-xl">
               {earlyRequestSubmitting ? 'Submitting...' : 'Submit request'}
             </Button>
           </DialogFooter>
@@ -1566,3 +1618,5 @@ export function AttendanceSystem() {
     </div>
   );
 }
+
+
