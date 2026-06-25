@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Clock, MapPin, Coffee, LogIn, LogOut, LogOutIcon, RefreshCw } from 'lucide-react';
+import { CalendarCheck, Clock, Coffee, LogIn, LogOut, LogOutIcon, MapPin, Radar, RefreshCw, ShieldCheck, Wifi } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
