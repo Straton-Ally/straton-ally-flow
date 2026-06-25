@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { CalendarCheck, Clock, Coffee, LogIn, LogOut, LogOutIcon, MapPin, Radar, RefreshCw, ShieldCheck, Wifi } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -145,6 +145,7 @@ export function AttendanceSystem() {
   const [attendanceTimeZones, setAttendanceTimeZones] = useState<AttendanceTimeZone[]>([]);
   const [selectedTimeZoneId, setSelectedTimeZoneId] = useState('');
   const [isRefreshingLocation, setIsRefreshingLocation] = useState(false);
+  const lastBreakSyncRef = useRef(0);
   const { toast } = useToast();
   const remoteOfficeSettings = {
     officeName: 'Remote',
@@ -1247,6 +1248,7 @@ export function AttendanceSystem() {
   const isCheckingLocation =
     !locationInfo.isAllowed &&
     (!locationInfo.currentIP || (locationInfo.requireGeoFencing && locationInfo.distance === null && !locationInfo.reason));
+  const locationChecking = isCheckingLocation;
 
   return (
     <div className="space-y-6">
