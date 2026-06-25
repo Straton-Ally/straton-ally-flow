@@ -3,13 +3,12 @@ import { cn } from '@/lib/utils';
 import {
   LayoutDashboard,
   Clock,
-  CheckSquare,
   Users,
-  Banknote,
   Menu,
   LogOut,
-  Bell,
-  MessageSquare,
+  Briefcase,
+  Calculator,
+  WalletCards,
 } from 'lucide-react';
 import {
   Sheet,
@@ -22,30 +21,34 @@ import { useState } from 'react';
 import { signOut } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import { useAuth } from '@/hooks/useAuth';
+import { canAccessFlowMath } from '@/lib/flowmath';
+import { canAccessFlowPay } from '@/lib/flowpay';
+import { useEffect } from 'react';
 
 const mainNavItems = [
   { icon: LayoutDashboard, label: 'Home', href: '/employee/dashboard' },
   { icon: Clock, label: 'Attendance', href: '/employee/attendance' },
-  { icon: CheckSquare, label: 'Tasks', href: '/employee/tasks' },
+  { icon: Briefcase, label: 'Work', href: '/employee/work' },
   { icon: Users, label: 'Team', href: '/employee/team' },
 ];
 
 const moreNavItems = [
   { label: 'Dashboard', href: '/employee/dashboard' },
   { label: 'Attendance', href: '/employee/attendance' },
-  { label: 'Tasks', href: '/employee/tasks' },
-  { label: 'Team', href: '/employee/team' },
+  { label: 'Workspace', href: '/employee/work' },
   { label: 'Salary', href: '/employee/salary' },
   { label: 'Notifications', href: '/employee/notifications' },
-  { label: 'Chat', href: '/employee/chat' },
-  { label: 'Work (New)', href: '/work' },
   { label: 'Settings', href: '/employee/settings' },
 ];
 
 export function EmployeeBottomNav() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
+  const [hasFlowMathAccess, setHasFlowMathAccess] = useState(false);
+  const [hasFlowPayAccess, setHasFlowPayAccess] = useState(false);
 
   const handleLogout = async () => {
     await signOut();
@@ -53,9 +56,30 @@ export function EmployeeBottomNav() {
     navigate('/login', { replace: true });
   };
 
+  useEffect(() => {
+    let mounted = true;
+    if (!user?.id) return;
+    Promise.all([canAccessFlowMath(user.id), canAccessFlowPay(user.id)])
+      .then(([flowMathAllowed, flowPayAllowed]) => {
+        if (mounted) {
+          setHasFlowMathAccess(flowMathAllowed);
+          setHasFlowPayAccess(flowPayAllowed);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setHasFlowMathAccess(false);
+          setHasFlowPayAccess(false);
+        }
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [user?.id]);
+
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border md:hidden">
-      <div className="flex items-center justify-around h-14 px-2">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-card/95 backdrop-blur-xl md:hidden">
+      <div className="flex items-center justify-around h-16 px-2">
         {mainNavItems.map((item) => {
           const isActive = location.pathname === item.href;
           return (
@@ -65,11 +89,11 @@ export function EmployeeBottomNav() {
               className={cn(
                 'flex flex-col items-center justify-center flex-1 h-full gap-0.5 text-[10px] font-medium transition-colors',
                 isActive
-                  ? 'text-success'
+                  ? 'text-primary'
                   : 'text-muted-foreground'
               )}
             >
-              <item.icon className={cn('h-5 w-5', isActive && 'text-success')} />
+              <item.icon className={cn('h-5 w-5', isActive && 'text-primary')} />
               <span>{item.label}</span>
             </Link>
           );
@@ -100,7 +124,7 @@ export function EmployeeBottomNav() {
                     className={cn(
                       'flex items-center gap-2 p-2.5 rounded-lg text-xs font-medium transition-colors',
                       isActive
-                        ? 'bg-success/10 text-success'
+                        ? 'bg-primary/10 text-primary'
                         : 'bg-muted text-foreground hover:bg-muted/80'
                     )}
                   >
@@ -108,6 +132,26 @@ export function EmployeeBottomNav() {
                   </Link>
                 );
               })}
+              {hasFlowMathAccess ? (
+                <Link
+                  to="/flowmath/dashboard"
+                  onClick={() => setOpen(false)}
+                  className="flex items-center gap-2 p-2.5 rounded-lg text-xs font-medium transition-colors bg-muted text-foreground hover:bg-muted/80"
+                >
+                  <Calculator className="h-4 w-4" />
+                  <span>FlowMath</span>
+                </Link>
+              ) : null}
+              {hasFlowPayAccess ? (
+                <Link
+                  to="/flowpay/dashboard"
+                  onClick={() => setOpen(false)}
+                  className="flex items-center gap-2 p-2.5 rounded-lg text-xs font-medium transition-colors bg-muted text-foreground hover:bg-muted/80"
+                >
+                  <img src="/flowpay.png" alt="FlowPay" className="h-4 w-4 object-contain" />
+                  <span>FlowPay</span>
+                </Link>
+              ) : null}
             </div>
             <div className="border-t border-border pt-3 pb-2">
               <Button 

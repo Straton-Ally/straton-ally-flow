@@ -37,7 +37,7 @@ export function AttendanceHeatmap({ rate, trend }: AttendanceHeatmapProps) {
   };
 
   return (
-    <div className="card-elevated p-3 rounded-lg">
+    <div className="card-elevated p-4">
       <div className="flex items-center justify-between mb-2">
         <h3 className="font-medium text-xs">Attendance Overview</h3>
         <Button variant="ghost" size="sm" className="h-5 text-[10px] text-muted-foreground gap-0.5 px-1.5">
@@ -49,7 +49,7 @@ export function AttendanceHeatmap({ rate, trend }: AttendanceHeatmapProps) {
       {/* Stats */}
       <div className="flex items-center gap-1.5 mb-2">
         <span className="text-lg font-display font-bold">{rate}%</span>
-        <span className="flex items-center gap-0.5 text-[9px] text-success font-medium bg-success/10 px-1 py-0.5 rounded">
+        <span className="flex items-center gap-1 text-xs text-primary font-medium bg-primary/10 px-2 py-1 rounded-full">
           <TrendingUp className="h-2 w-2" />
           {trend}%
         </span>

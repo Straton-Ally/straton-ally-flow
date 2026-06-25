@@ -19,7 +19,7 @@ interface ProjectStatusTableProps {
 export function ProjectStatusTable({ projects }: ProjectStatusTableProps) {
   const getStatusBadge = (status: Project['status']) => {
     const config = {
-      'on-track': { label: 'On Track', className: 'text-success' },
+      'on-track': { label: 'On Track', className: 'text-primary' },
       'in-progress': { label: 'In Progress', className: 'text-warning' },
       'delayed': { label: 'Delayed', className: 'text-destructive' },
     };
@@ -27,7 +27,7 @@ export function ProjectStatusTable({ projects }: ProjectStatusTableProps) {
   };
 
   return (
-    <div className="card-elevated p-3 rounded-lg">
+    <div className="card-elevated p-4">
       <div className="flex items-center justify-between mb-2">
         <div>
           <h3 className="font-medium text-xs">Project Status Overview</h3>

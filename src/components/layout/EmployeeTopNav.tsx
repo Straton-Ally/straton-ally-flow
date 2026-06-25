@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { Search, Bell, MessageSquare, LogOut } from 'lucide-react';
+import { Search, Bell, Briefcase, LogOut, Calculator, WalletCards } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -16,14 +16,14 @@ import { useAuth } from '@/hooks/useAuth';
 import { signOut } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
+import { canAccessFlowMath } from '@/lib/flowmath';
+import { canAccessFlowPay } from '@/lib/flowpay';
 
 const navItems = [
   { label: 'Dashboard', href: '/employee/dashboard' },
   { label: 'Attendance', href: '/employee/attendance' },
-  { label: 'Tasks', href: '/employee/tasks' },
-  { label: 'Team', href: '/employee/team' },
+  { label: 'Workspace', href: '/employee/work' },
   { label: 'Salary', href: '/employee/salary' },
-  { label: 'Work', href: '/work' },
 ];
 
 export function EmployeeTopNav() {
@@ -32,6 +32,8 @@ export function EmployeeTopNav() {
   const { user } = useAuth();
   const firstName = user?.fullName?.split(' ')[0] || 'User';
   const [unreadWorkNotifications, setUnreadWorkNotifications] = useState(0);
+  const [hasFlowMathAccess, setHasFlowMathAccess] = useState(false);
+  const [hasFlowPayAccess, setHasFlowPayAccess] = useState(false);
 
   const handleLogout = async () => {
     await signOut();
@@ -66,17 +68,40 @@ export function EmployeeTopNav() {
     };
   }, [user?.id]);
 
+  useEffect(() => {
+    let mounted = true;
+    if (!user?.id) return;
+
+    Promise.all([canAccessFlowMath(user.id), canAccessFlowPay(user.id)])
+      .then(([flowMathAllowed, flowPayAllowed]) => {
+        if (mounted) {
+          setHasFlowMathAccess(flowMathAllowed);
+          setHasFlowPayAccess(flowPayAllowed);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setHasFlowMathAccess(false);
+          setHasFlowPayAccess(false);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [user?.id]);
+
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
-      <div className="flex h-14 items-center justify-between px-4 md:px-6">
+    <header className="sticky top-0 z-50 w-full border-b border-border bg-card/90 backdrop-blur-xl supports-[backdrop-filter]:bg-card/80">
+      <div className="flex h-16 items-center justify-between px-4 md:px-6">
         {/* Left: Logo + Nav */}
         <div className="flex items-center gap-6">
           {/* Logo */}
-          <Link to="/employee/dashboard" className="flex items-center gap-2">
+          <Link to="/employee/dashboard" className="relative flex h-9 w-[132px] items-center overflow-hidden" aria-label="FLOW HR dashboard">
             <img 
               src="/logo.png" 
               alt="FLOW by Straton Ally" 
-              className="w-32 h-32 rounded-lg object-contain mt-2"
+              className="absolute left-[-7px] top-[-54px] h-[150px] w-[150px] max-w-none object-contain"
             />
           </Link>
 
@@ -90,10 +115,10 @@ export function EmployeeTopNav() {
                   key={item.href}
                   to={item.href}
                   className={cn(
-                    'px-3 py-1.5 rounded-full text-sm font-medium transition-colors',
+                    'nav-tab',
                     isActive
-                      ? 'bg-success text-success-foreground'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                      ? 'nav-tab-active'
+                      : 'text-muted-foreground hover:text-primary hover:bg-primary/10'
                   )}
                 >
                   {item.label}
@@ -114,9 +139,23 @@ export function EmployeeTopNav() {
             />
           </div>
 
-          <Button variant="ghost" size="icon" className="h-8 w-8">
-            <MessageSquare className="h-4 w-4" />
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate('/employee/work')} title="Workspace">
+            <Briefcase className="h-4 w-4" />
           </Button>
+
+          {hasFlowMathAccess ? (
+            <Button variant="outline" size="sm" className="hidden h-8 sm:inline-flex" onClick={() => navigate('/flowmath/dashboard')} title="FlowMath Accounts">
+              <Calculator className="h-4 w-4" />
+              FlowMath
+            </Button>
+          ) : null}
+
+          {hasFlowPayAccess ? (
+            <Button variant="outline" size="sm" className="hidden h-8 sm:inline-flex" onClick={() => navigate('/flowpay/dashboard')} title="FlowPay Terminal">
+              <img src="/flowpay.png" alt="FlowPay" className="h-4 w-4 object-contain" />
+              FlowPay
+            </Button>
+          ) : null}
 
           <Button
             variant="ghost"
@@ -127,7 +166,7 @@ export function EmployeeTopNav() {
           >
             <Bell className="h-4 w-4" />
             {unreadWorkNotifications > 0 ? (
-              <span className="absolute top-1 right-1 w-2 h-2 bg-success rounded-full" />
+              <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full" />
             ) : null}
           </Button>
 
@@ -139,7 +178,7 @@ export function EmployeeTopNav() {
               <Button variant="ghost" className="h-8 w-8 rounded-full p-0">
                 <Avatar className="h-8 w-8">
                   <AvatarImage src={user?.avatarUrl || ''} />
-                  <AvatarFallback className="bg-success text-success-foreground text-xs font-medium">
+                  <AvatarFallback className="bg-primary text-primary-foreground text-xs font-medium">
                     {firstName.charAt(0)}
                   </AvatarFallback>
                 </Avatar>

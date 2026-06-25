@@ -7,6 +7,7 @@ import {
   Clock,
   Shield,
   Settings,
+  FileText,
   LogOut,
   ChevronRight,
   Building2,
@@ -53,6 +54,11 @@ const navItems = [
     title: 'Permissions',
     href: '/admin/permissions',
     icon: Shield,
+  },
+  {
+    title: 'Logs',
+    href: '/admin/logs',
+    icon: FileText,
   },
 ];
 

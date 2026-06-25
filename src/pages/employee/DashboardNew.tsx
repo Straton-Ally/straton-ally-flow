@@ -3,12 +3,10 @@ import { EmployeeLayout } from '@/components/layout/EmployeeLayout';
 import { AttendanceSystem } from '@/components/employee/AttendanceSystemNew';
 import { AttendanceStats } from '@/components/employee/AttendanceStats';
 import { SalaryProgress } from '@/components/employee/SalaryProgress';
-import { TaskManagement } from '@/components/employee/TaskManagement';
-import { TeamCollaboration } from '@/components/employee/TeamCollaboration';
 import { Notifications } from '@/components/employee/Notifications';
-import { Chat } from '@/components/employee/Chat';
+import { WorkspaceModule } from '@/components/work/WorkspaceModule';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Clock, Calendar, Banknote, CheckSquare, Users, Bell, MessageSquare, TrendingUp } from 'lucide-react';
+import { Clock, Calendar, Banknote, CheckSquare, Users, Bell, Briefcase, TrendingUp } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { format } from 'date-fns';
 
@@ -27,13 +25,10 @@ export default function EmployeeDashboard() {
       case 'salary':
         return <SalaryProgress />;
       case 'tasks':
-        return <TaskManagement />;
       case 'team':
-        return <TeamCollaboration />;
+        return <WorkspaceModule mode="employee" />;
       case 'notifications':
         return <Notifications />;
-      case 'chat':
-        return <Chat />;
       default:
         return <DashboardHome />;
     }
@@ -202,19 +197,19 @@ export default function EmployeeDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="card-elevated cursor-pointer hover:shadow-lg transition-shadow" onClick={() => setCurrentPage('chat')}>
+        <Card className="card-elevated cursor-pointer hover:shadow-lg transition-shadow" onClick={() => setCurrentPage('tasks')}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <MessageSquare className="h-5 w-5" />
-              Team Chat
+              <Briefcase className="h-5 w-5" />
+              Workspace
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground mb-4">
-              Chat with team members in real-time
+              Open projects, tasks, and workspace chat
             </p>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">2 active chats</span>
+              <span className="text-sm text-muted-foreground">Workspace hub</span>
               <div className="w-2 h-2 bg-blue-500 rounded-full" />
             </div>
           </CardContent>

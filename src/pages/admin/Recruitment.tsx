@@ -28,6 +28,7 @@ import {
   ArrowUp,
   ArrowDown,
   Settings,
+  Globe2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -72,6 +73,7 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
 import { formatTime12h } from '@/lib/utils';
+import { COMMON_TIME_ZONES, getSupportedTimeZones, intervalToMinutes, isValidTimeZone, minutesToPostgresInterval } from '@/lib/timezones';
 import { NewEmployeeForm } from '@/components/employee/NewEmployeeForm';
 import { EditEmployeeForm } from '@/components/employee/EditEmployeeForm';
 
@@ -80,6 +82,7 @@ type ProfileStatus = 'active' | 'inactive' | 'locked';
 interface OfficeSettings {
   work_start_time: string;
   work_end_time: string;
+  break_duration_minutes: number;
   timezone: string;
   allowed_ip_ranges: string[] | null;
   require_ip_whitelist: boolean;
@@ -112,6 +115,7 @@ interface EmployeeRow {
   department: string | null;
   office_id: string | null;
   office_name: string | null;
+  work_location: 'remote' | 'on_site' | null;
   status: ProfileStatus;
   joining_date: string;
 }
@@ -119,6 +123,7 @@ interface EmployeeRow {
 interface OfficeSettingsSelectRow {
   work_start_time: string;
   work_end_time: string;
+  break_duration: unknown;
   timezone: string;
   allowed_ip_ranges: string[] | null;
   require_ip_whitelist: boolean;
@@ -149,6 +154,7 @@ interface EmployeeSelectRow {
   designation: string | null;
   joining_date: string;
   office_id: string | null;
+  work_location: 'remote' | 'on_site' | null;
   created_at: string;
 }
 
@@ -175,6 +181,7 @@ interface DutyScheduleTemplate {
   shift_type: 'regular' | 'rotating' | 'flexible' | 'night';
   start_time: string;
   end_time: string;
+  break_duration_minutes: number;
   work_days: string[];
   is_active: boolean;
   created_at?: string;
@@ -187,6 +194,47 @@ interface DepartmentOpsRow {
   employee_count: number;
 }
 
+interface AttendanceTimeZone {
+  id: string;
+  name: string;
+  time_zone: string;
+  is_active: boolean;
+}
+
+interface AccessControlRow {
+  id: string;
+  employee_id: string;
+  office_id: string;
+  access_level: 'full' | 'restricted' | 'read_only';
+  allowed_areas: string[] | null;
+  ip_override: boolean;
+  is_active: boolean;
+  employee: {
+    employee_id: string;
+    profile: {
+      full_name: string;
+      email: string;
+    };
+  };
+  office: {
+    name: string;
+    settings: {
+      require_ip_whitelist: boolean;
+      geo_fencing_enabled: boolean;
+    };
+  };
+}
+
+interface AccessControlSelectRow {
+  id: string;
+  employee_id: string;
+  office_id: string;
+  access_level: 'full' | 'restricted' | 'read_only';
+  allowed_areas: string[] | null;
+  ip_override: boolean;
+  is_active: boolean;
+}
+
 const WORK_DAYS_OPTIONS = [
   { value: 'monday', label: 'Mon' },
   { value: 'tuesday', label: 'Tue' },
@@ -196,39 +244,6 @@ const WORK_DAYS_OPTIONS = [
   { value: 'saturday', label: 'Sat' },
   { value: 'sunday', label: 'Sun' },
 ] as const;
-
-const mockAccessControls = [
-  {
-    id: '1',
-    access_level: 'full',
-    allowed_areas: ['main_office', 'server_room', 'conference_rooms'],
-    ip_override: true,
-    is_active: true,
-    employee: {
-      employee_id: 'EMP001',
-      profile: { full_name: 'John Doe', email: 'john@example.com' },
-    },
-    office: {
-      name: 'Headquarters',
-      settings: { require_ip_whitelist: false, geo_fencing_enabled: false },
-    },
-  },
-  {
-    id: '2',
-    access_level: 'restricted',
-    allowed_areas: ['main_office', 'break_room'],
-    ip_override: false,
-    is_active: true,
-    employee: {
-      employee_id: 'EMP002',
-      profile: { full_name: 'Jane Smith', email: 'jane@example.com' },
-    },
-    office: {
-      name: 'Headquarters',
-      settings: { require_ip_whitelist: true, geo_fencing_enabled: true },
-    },
-  },
-];
 
 type EmployeeSortField = 'name' | 'employee_id' | 'joining_date' | 'department' | 'designation' | 'status';
 type SortOrder = 'asc' | 'desc';
@@ -250,8 +265,10 @@ export default function Recruitment() {
   const [assignmentsOfficeId, setAssignmentsOfficeId] = useState<string>('');
   const [offices, setOffices] = useState<Office[]>([]);
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
+  const [accessControls, setAccessControls] = useState<AccessControlRow[]>([]);
   const [isOfficesLoading, setIsOfficesLoading] = useState(true);
   const [isEmployeesLoading, setIsEmployeesLoading] = useState(true);
+  const [isAccessControlsLoading, setIsAccessControlsLoading] = useState(true);
   const [isOfficeDialogOpen, setIsOfficeDialogOpen] = useState(false);
   const [editingOffice, setEditingOffice] = useState<Office | null>(null);
   const [officeForm, setOfficeForm] = useState({
@@ -264,6 +281,7 @@ export default function Recruitment() {
     email: '',
     work_start_time: '09:00:00',
     work_end_time: '17:00:00',
+    break_duration_minutes: '45',
     timezone: 'UTC',
     require_ip_whitelist: false,
     allowed_ip_ranges_text: '',
@@ -291,6 +309,7 @@ export default function Recruitment() {
     shift_type: 'regular' as DutyScheduleTemplate['shift_type'],
     start_time: '09:00',
     end_time: '17:00',
+    break_duration_minutes: '45',
     work_days: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'] as string[],
     is_active: true,
   });
@@ -302,6 +321,16 @@ export default function Recruitment() {
   const [editingDeptOps, setEditingDeptOps] = useState<DepartmentOpsRow | null>(null);
   const [deptForm, setDeptForm] = useState({ name: '', description: '' });
   const [isDeptSaving, setIsDeptSaving] = useState(false);
+  const [attendanceTimeZones, setAttendanceTimeZones] = useState<AttendanceTimeZone[]>([]);
+  const [isTimeZonesLoading, setIsTimeZonesLoading] = useState(false);
+  const [isTimeZoneDialogOpen, setIsTimeZoneDialogOpen] = useState(false);
+  const [editingTimeZone, setEditingTimeZone] = useState<AttendanceTimeZone | null>(null);
+  const [timeZoneForm, setTimeZoneForm] = useState({ name: '', time_zone: 'Europe/London', is_active: true });
+  const [isTimeZoneSaving, setIsTimeZoneSaving] = useState(false);
+  const supportedTimeZones = useMemo(() => {
+    const zones = new Set([...COMMON_TIME_ZONES, ...getSupportedTimeZones()]);
+    return Array.from(zones).sort((a, b) => a.localeCompare(b));
+  }, []);
   const { toast } = useToast();
 
   const getErrorMessage = (error: unknown) => {
@@ -311,11 +340,33 @@ export default function Recruitment() {
     return 'Unknown error';
   };
 
-  const handleStatusToggle = (type: string, id: string, currentStatus: boolean) => {
-    toast({
-      title: 'Status updated',
-      description: `${type} has been ${!currentStatus ? 'activated' : 'deactivated'}`,
-    });
+  const handleAccessStatusToggle = async (id: string, currentStatus: boolean) => {
+    try {
+      const accessClient = supabase as unknown as {
+        from: (table: 'access_control') => {
+          update: (values: { is_active: boolean }) => {
+            eq: (column: 'id', value: string) => Promise<{ error: Error | null }>;
+          };
+        };
+      };
+
+      const { error } = await accessClient.from('access_control').update({ is_active: !currentStatus }).eq('id', id);
+      if (error) throw error;
+
+      setAccessControls((current) =>
+        current.map((access) => (access.id === id ? { ...access, is_active: !currentStatus } : access)),
+      );
+      toast({
+        title: 'Access updated',
+        description: `Access has been ${!currentStatus ? 'activated' : 'deactivated'}`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: getErrorMessage(error) || 'Failed to update access control',
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleDelete = (type: string, id: string) => {
@@ -361,7 +412,7 @@ export default function Recruitment() {
       const { data, error } = await supabase
         .from('offices')
         .select(
-          'id,name,address,city,country,postal_code,phone,email,is_active,office_settings(work_start_time,work_end_time,timezone,allowed_ip_ranges,require_ip_whitelist,geo_fencing_enabled,latitude,longitude,radius_meters)',
+          'id,name,address,city,country,postal_code,phone,email,is_active,office_settings(work_start_time,work_end_time,break_duration,timezone,allowed_ip_ranges,require_ip_whitelist,geo_fencing_enabled,latitude,longitude,radius_meters)',
         )
         .order('created_at', { ascending: false });
 
@@ -381,6 +432,7 @@ export default function Recruitment() {
           ? {
               work_start_time: rawSettings.work_start_time,
               work_end_time: rawSettings.work_end_time,
+              break_duration_minutes: intervalToMinutes(rawSettings.break_duration, 45),
               timezone: rawSettings.timezone,
               allowed_ip_ranges: rawSettings.allowed_ip_ranges ?? null,
               require_ip_whitelist: Boolean(rawSettings.require_ip_whitelist),
@@ -422,7 +474,7 @@ export default function Recruitment() {
       setIsEmployeesLoading(true);
       const { data: employeesData, error: employeesError } = await supabase
         .from('employees')
-        .select('id,user_id,employee_id,department_id,designation,joining_date,office_id,created_at')
+        .select('id,user_id,employee_id,department_id,designation,joining_date,office_id,work_location,created_at')
         .order('created_at', { ascending: false });
 
       if (employeesError) throw employeesError;
@@ -480,6 +532,7 @@ export default function Recruitment() {
           department: department?.name ?? null,
           office_id: emp.office_id ?? null,
           office_name: office?.name ?? null,
+          work_location: emp.work_location ?? null,
           status: profile?.status ?? 'inactive',
           joining_date: emp.joining_date,
         };
@@ -497,10 +550,114 @@ export default function Recruitment() {
     }
   };
 
+  const fetchAccessControls = async () => {
+    setIsAccessControlsLoading(true);
+    try {
+      const accessClient = supabase as unknown as {
+        from: (table: 'access_control') => {
+          select: (columns: string) => {
+            order: (
+              column: 'created_at',
+              options: { ascending: boolean },
+            ) => Promise<{ data: AccessControlSelectRow[] | null; error: Error | null }>;
+          };
+        };
+      };
+
+      const { data, error } = await accessClient
+        .from('access_control')
+        .select('id,employee_id,office_id,access_level,allowed_areas,ip_override,is_active')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const rows = data ?? [];
+      const employeeIds = Array.from(new Set(rows.map((row) => row.employee_id)));
+      const officeIds = Array.from(new Set(rows.map((row) => row.office_id)));
+
+      const { data: employeesData, error: employeesError } = employeeIds.length
+        ? await supabase.from('employees').select('id,user_id,employee_id').in('id', employeeIds)
+        : { data: [], error: null };
+      if (employeesError) throw employeesError;
+
+      const employeeRows = (employeesData ?? []) as EmployeeSelectRow[];
+      const userIds = employeeRows.map((employee) => employee.user_id);
+
+      const { data: profilesData, error: profilesError } = userIds.length
+        ? await supabase.from('profiles').select('id,full_name,email,status').in('id', userIds)
+        : { data: [], error: null };
+      if (profilesError) throw profilesError;
+
+      const { data: officesData, error: officesError } = officeIds.length
+        ? await supabase
+            .from('offices')
+            .select('id,name,office_settings(require_ip_whitelist,geo_fencing_enabled)')
+            .in('id', officeIds)
+        : { data: [], error: null };
+      if (officesError) throw officesError;
+
+      const employeesById = new Map<string, EmployeeSelectRow>();
+      for (const employee of employeeRows) employeesById.set(employee.id, employee);
+
+      const profilesById = new Map<string, ProfileSelectRow>();
+      for (const profile of (profilesData ?? []) as ProfileSelectRow[]) profilesById.set(profile.id, profile);
+
+      const officesById = new Map<string, { id: string; name: string; office_settings: Partial<OfficeSettingsSelectRow> | Partial<OfficeSettingsSelectRow>[] | null }>();
+      for (const office of (officesData ?? []) as { id: string; name: string; office_settings: Partial<OfficeSettingsSelectRow> | Partial<OfficeSettingsSelectRow>[] | null }[]) {
+        officesById.set(office.id, office);
+      }
+
+      setAccessControls(
+        rows.map((row) => {
+          const employee = employeesById.get(row.employee_id);
+          const profile = employee ? profilesById.get(employee.user_id) : null;
+          const office = officesById.get(row.office_id);
+          const settings = office
+            ? Array.isArray(office.office_settings)
+              ? office.office_settings[0]
+              : office.office_settings
+            : null;
+
+          return {
+            id: row.id,
+            employee_id: row.employee_id,
+            office_id: row.office_id,
+            access_level: row.access_level,
+            allowed_areas: row.allowed_areas ?? [],
+            ip_override: row.ip_override,
+            is_active: row.is_active,
+            employee: {
+              employee_id: employee?.employee_id ?? '—',
+              profile: {
+                full_name: profile?.full_name ?? 'Unknown employee',
+                email: profile?.email ?? '',
+              },
+            },
+            office: {
+              name: office?.name ?? 'Unknown office',
+              settings: {
+                require_ip_whitelist: Boolean(settings?.require_ip_whitelist),
+                geo_fencing_enabled: Boolean(settings?.geo_fencing_enabled),
+              },
+            },
+          };
+        }),
+      );
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: getErrorMessage(error) || 'Failed to load access controls',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsAccessControlsLoading(false);
+    }
+  };
+
   const fetchScheduleTemplates = async () => {
     setIsScheduleTemplatesLoading(true);
     try {
-      const { data, error } = await supabase.from('duty_schedule_templates').select('id, schedule_name, shift_type, start_time, end_time, work_days, is_active, created_at').order('schedule_name');
+      const { data, error } = await supabase.from('duty_schedule_templates').select('id, schedule_name, shift_type, start_time, end_time, break_duration, work_days, is_active, created_at').order('schedule_name');
       if (error) throw error;
       const rows = ((data ?? []) as Record<string, unknown>[]).map((row) => ({
         id: row.id as string,
@@ -508,6 +665,7 @@ export default function Recruitment() {
         shift_type: row.shift_type as DutyScheduleTemplate['shift_type'],
         start_time: String(row.start_time ?? '').slice(0, 5),
         end_time: String(row.end_time ?? '').slice(0, 5),
+        break_duration_minutes: intervalToMinutes(row.break_duration, 45),
         work_days: Array.isArray(row.work_days) ? (row.work_days as string[]) : [],
         is_active: Boolean(row.is_active),
         created_at: row.created_at as string | undefined,
@@ -540,11 +698,29 @@ export default function Recruitment() {
     }
   };
 
+  const fetchAttendanceTimeZones = async () => {
+    setIsTimeZonesLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('attendance_time_zones')
+        .select('id, name, time_zone, is_active')
+        .order('name');
+      if (error) throw error;
+      setAttendanceTimeZones((data ?? []) as AttendanceTimeZone[]);
+    } catch (e) {
+      toast({ title: 'Error', description: getErrorMessage(e) || 'Failed to load time zones', variant: 'destructive' });
+    } finally {
+      setIsTimeZonesLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchOffices();
     fetchEmployees();
+    fetchAccessControls();
     fetchScheduleTemplates();
     fetchDepartmentsOps();
+    fetchAttendanceTimeZones();
   }, []);
 
   const openNewOfficeDialog = async () => {
@@ -559,6 +735,7 @@ export default function Recruitment() {
       email: '',
       work_start_time: '09:00:00',
       work_end_time: '17:00:00',
+      break_duration_minutes: '45',
       timezone: 'UTC',
       require_ip_whitelist: false,
       allowed_ip_ranges_text: '',
@@ -582,6 +759,7 @@ export default function Recruitment() {
       email: office.email ?? '',
       work_start_time: office.settings?.work_start_time ?? '09:00:00',
       work_end_time: office.settings?.work_end_time ?? '17:00:00',
+      break_duration_minutes: String(office.settings?.break_duration_minutes ?? 45),
       timezone: office.settings?.timezone ?? 'UTC',
       require_ip_whitelist: Boolean(office.settings?.require_ip_whitelist),
       allowed_ip_ranges_text: (office.settings?.allowed_ip_ranges ?? []).join('\n'),
@@ -670,11 +848,12 @@ export default function Recruitment() {
     const latitude = officeForm.latitude.trim() ? Number(officeForm.latitude.trim()) : null;
     const longitude = officeForm.longitude.trim() ? Number(officeForm.longitude.trim()) : null;
     const radiusMeters = officeForm.radius_meters.trim() ? Number(officeForm.radius_meters.trim()) : null;
+    const breakDurationMinutes = Number(officeForm.break_duration_minutes);
 
-    if ((latitude !== null && Number.isNaN(latitude)) || (longitude !== null && Number.isNaN(longitude)) || (radiusMeters !== null && Number.isNaN(radiusMeters))) {
+    if ((latitude !== null && Number.isNaN(latitude)) || (longitude !== null && Number.isNaN(longitude)) || (radiusMeters !== null && Number.isNaN(radiusMeters)) || !Number.isFinite(breakDurationMinutes) || breakDurationMinutes < 0) {
       toast({
         title: 'Invalid values',
-        description: 'Latitude/longitude/radius must be numbers',
+        description: 'Latitude/longitude/radius/break duration must be valid numbers',
         variant: 'destructive',
       });
       return;
@@ -703,6 +882,7 @@ export default function Recruitment() {
             office_id: editingOffice.id,
             work_start_time: officeForm.work_start_time,
             work_end_time: officeForm.work_end_time,
+            break_duration: minutesToPostgresInterval(breakDurationMinutes),
             timezone: officeForm.timezone.trim() || 'UTC',
             require_ip_whitelist: officeForm.require_ip_whitelist,
             allowed_ip_ranges: allowedIpRanges.length ? allowedIpRanges : null,
@@ -741,6 +921,7 @@ export default function Recruitment() {
           office_id: officeId,
           work_start_time: officeForm.work_start_time,
           work_end_time: officeForm.work_end_time,
+          break_duration: minutesToPostgresInterval(breakDurationMinutes),
           timezone: officeForm.timezone.trim() || 'UTC',
           require_ip_whitelist: officeForm.require_ip_whitelist,
           allowed_ip_ranges: allowedIpRanges.length ? allowedIpRanges : null,
@@ -814,7 +995,7 @@ export default function Recruitment() {
 
   const openAssignDialog = (employeeId?: string) => {
     const employee = employeeId ? employees.find((e) => e.id === employeeId) : undefined;
-    const defaultOfficeId = employee?.office_id ?? offices[0]?.id ?? '';
+    const defaultOfficeId = employee?.work_location === 'remote' ? '_remote' : employee?.office_id ?? offices[0]?.id ?? '';
     setAssignForm({
       employeeId: employeeId ?? '',
       officeId: defaultOfficeId,
@@ -827,14 +1008,20 @@ export default function Recruitment() {
 
     try {
       setIsAssignSaving(true);
+      const payload = assignForm.officeId === '_remote'
+        ? { office_id: null, work_location: 'remote' as const }
+        : { office_id: assignForm.officeId, work_location: 'on_site' as const };
       const { error } = await supabase
         .from('employees')
-        .update({ office_id: assignForm.officeId })
+        .update(payload)
         .eq('id', assignForm.employeeId);
 
       if (error) throw error;
 
-      toast({ title: 'Success', description: 'Employee assigned to office' });
+      toast({
+        title: 'Success',
+        description: assignForm.officeId === '_remote' ? 'Employee marked as remote' : 'Employee assigned to office',
+      });
       setIsAssignDialogOpen(false);
       await fetchEmployees();
     } catch (error: unknown) {
@@ -874,6 +1061,7 @@ export default function Recruitment() {
         shift_type: template.shift_type,
         start_time: template.start_time,
         end_time: template.end_time,
+        break_duration_minutes: String(template.break_duration_minutes ?? 45),
         work_days: template.work_days?.length ? [...template.work_days] : ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
         is_active: template.is_active,
       });
@@ -884,6 +1072,7 @@ export default function Recruitment() {
         shift_type: 'regular',
         start_time: '09:00',
         end_time: '17:00',
+        break_duration_minutes: '45',
         work_days: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
         is_active: true,
       });
@@ -913,11 +1102,17 @@ export default function Recruitment() {
       setIsScheduleSaving(true);
       const startTime = scheduleForm.start_time.length === 5 ? scheduleForm.start_time + ':00' : scheduleForm.start_time;
       const endTime = scheduleForm.end_time.length === 5 ? scheduleForm.end_time + ':00' : scheduleForm.end_time;
+      const breakDurationMinutes = Number(scheduleForm.break_duration_minutes);
+      if (!Number.isFinite(breakDurationMinutes) || breakDurationMinutes < 0) {
+        toast({ title: 'Error', description: 'Break duration must be a valid number', variant: 'destructive' });
+        return;
+      }
       const payload = {
         schedule_name: scheduleForm.schedule_name.trim(),
         shift_type: scheduleForm.shift_type,
         start_time: startTime,
         end_time: endTime,
+        break_duration: minutesToPostgresInterval(breakDurationMinutes),
         work_days: scheduleForm.work_days,
         is_active: scheduleForm.is_active,
       };
@@ -949,6 +1144,62 @@ export default function Recruitment() {
       await fetchScheduleTemplates();
     } catch (e) {
       toast({ title: 'Error', description: getErrorMessage(e) || 'Failed to delete schedule', variant: 'destructive' });
+    }
+  };
+
+  const openTimeZoneDialog = (zone?: AttendanceTimeZone) => {
+    if (zone) {
+      setEditingTimeZone(zone);
+      setTimeZoneForm({ name: zone.name, time_zone: zone.time_zone, is_active: zone.is_active });
+    } else {
+      setEditingTimeZone(null);
+      setTimeZoneForm({ name: '', time_zone: 'Europe/London', is_active: true });
+    }
+    setIsTimeZoneDialogOpen(true);
+  };
+
+  const saveAttendanceTimeZone = async () => {
+    const name = timeZoneForm.name.trim();
+    const timeZone = timeZoneForm.time_zone.trim();
+    if (!name || !timeZone) {
+      toast({ title: 'Missing fields', description: 'Name and time zone are required', variant: 'destructive' });
+      return;
+    }
+    if (!isValidTimeZone(timeZone)) {
+      toast({ title: 'Invalid time zone', description: 'Choose a valid IANA time zone such as Europe/London', variant: 'destructive' });
+      return;
+    }
+
+    try {
+      setIsTimeZoneSaving(true);
+      const payload = { name, time_zone: timeZone, is_active: timeZoneForm.is_active };
+      if (editingTimeZone) {
+        const { error } = await supabase.from('attendance_time_zones').update(payload).eq('id', editingTimeZone.id);
+        if (error) throw error;
+        toast({ title: 'Success', description: 'Time zone updated' });
+      } else {
+        const { error } = await supabase.from('attendance_time_zones').insert(payload);
+        if (error) throw error;
+        toast({ title: 'Success', description: 'Time zone created' });
+      }
+      setIsTimeZoneDialogOpen(false);
+      await fetchAttendanceTimeZones();
+    } catch (e) {
+      toast({ title: 'Error', description: getErrorMessage(e) || 'Failed to save time zone', variant: 'destructive' });
+    } finally {
+      setIsTimeZoneSaving(false);
+    }
+  };
+
+  const deleteAttendanceTimeZone = async (id: string) => {
+    if (!confirm('Delete this time zone? Existing attendance records will keep their saved timezone text.')) return;
+    try {
+      const { error } = await supabase.from('attendance_time_zones').delete().eq('id', id);
+      if (error) throw error;
+      toast({ title: 'Success', description: 'Time zone deleted' });
+      await fetchAttendanceTimeZones();
+    } catch (e) {
+      toast({ title: 'Error', description: getErrorMessage(e) || 'Failed to delete time zone', variant: 'destructive' });
     }
   };
 
@@ -1040,7 +1291,7 @@ export default function Recruitment() {
 
   const filteredAndSortedEmployees = useMemo(() => {
     const q = employeesSearchQuery.trim().toLowerCase();
-    let list = q
+    const list = q
       ? employees.filter(
           (emp) =>
             emp.full_name.toLowerCase().includes(q) ||
@@ -1090,7 +1341,9 @@ export default function Recruitment() {
     const q = searchQuery.trim().toLowerCase();
     let list = employees;
     if (assignmentsOfficeId) {
-      list = list.filter((emp) => emp.office_id === assignmentsOfficeId);
+      list = assignmentsOfficeId === '_remote'
+        ? list.filter((emp) => emp.work_location === 'remote')
+        : list.filter((emp) => emp.office_id === assignmentsOfficeId);
     }
     if (q) {
       list = list.filter(
@@ -1098,7 +1351,7 @@ export default function Recruitment() {
           emp.full_name.toLowerCase().includes(q) ||
           emp.email.toLowerCase().includes(q) ||
           emp.employee_id.toLowerCase().includes(q) ||
-          (emp.office_name ?? '').toLowerCase().includes(q) ||
+          (emp.work_location === 'remote' ? 'remote' : emp.office_name ?? '').toLowerCase().includes(q) ||
           (emp.department ?? '').toLowerCase().includes(q) ||
           (emp.designation ?? '').toLowerCase().includes(q)
       );
@@ -1133,8 +1386,8 @@ export default function Recruitment() {
           bVal = (b.status ?? '').toLowerCase();
           return mult * (aVal < bVal ? -1 : aVal > bVal ? 1 : 0);
         case 'office':
-          aVal = (a.office_name ?? '').toLowerCase();
-          bVal = (b.office_name ?? '').toLowerCase();
+          aVal = (a.work_location === 'remote' ? 'remote' : a.office_name ?? '').toLowerCase();
+          bVal = (b.work_location === 'remote' ? 'remote' : b.office_name ?? '').toLowerCase();
           return mult * (aVal < bVal ? -1 : aVal > bVal ? 1 : 0);
         default:
           return 0;
@@ -1201,7 +1454,7 @@ export default function Recruitment() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Access Rules</p>
-                <p className="text-2xl font-bold">{mockAccessControls.length}</p>
+                <p className="text-2xl font-bold">{accessControls.length}</p>
               </div>
               <Shield className="h-8 w-8 text-purple-600" />
             </div>
@@ -1329,6 +1582,7 @@ export default function Recruitment() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="_all">All offices</SelectItem>
+                        <SelectItem value="_remote">Remote</SelectItem>
                         {offices.map((office) => (
                           <SelectItem key={office.id} value={office.id}>
                             {office.name}
@@ -1384,8 +1638,12 @@ export default function Recruitment() {
                           <TableCell>{employee.designation ?? '—'}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
-                              <Building2 className="h-4 w-4" />
-                              <span>{employee.office_name ?? 'Unassigned'}</span>
+                              {employee.work_location === 'remote' ? (
+                                <Wifi className="h-4 w-4" />
+                              ) : (
+                                <Building2 className="h-4 w-4" />
+                              )}
+                              <span>{employee.work_location === 'remote' ? 'Remote' : employee.office_name ?? 'Unassigned'}</span>
                             </div>
                           </TableCell>
                           <TableCell>{format(new Date(employee.joining_date), 'MMM d, yyyy')}</TableCell>
@@ -1701,7 +1959,7 @@ export default function Recruitment() {
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
                           <div className="flex items-center gap-2">
                             <Clock className="h-4 w-4" />
                             <span>
@@ -1711,6 +1969,10 @@ export default function Recruitment() {
                           <div className="flex items-center gap-2">
                             <Users className="h-4 w-4" />
                             <span>{employeesCount} employees</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <PauseCircle className="h-4 w-4" />
+                            <span>{settings?.break_duration_minutes ?? 45} min break</span>
                           </div>
                           <div className="flex items-center gap-2">
                             <MapPin className="h-4 w-4" />
@@ -1786,6 +2048,9 @@ export default function Recruitment() {
                           <p className="text-sm text-muted-foreground">
                             {formatTime12h(schedule.start_time)} – {formatTime12h(schedule.end_time)}
                           </p>
+                          <p className="text-xs text-muted-foreground">
+                            SOP break: {schedule.break_duration_minutes} minutes
+                          </p>
                         </div>
                         <div className="flex items-center gap-2">
                           <Badge variant="outline">
@@ -1806,6 +2071,60 @@ export default function Recruitment() {
                             {day.slice(0, 3)}
                           </Badge>
                         ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Attendance Time Zones */}
+          <Card className="card-elevated">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Globe2 className="h-5 w-5" />
+                  Attendance Time Zones
+                </CardTitle>
+                <Button variant="outline" size="sm" onClick={() => openTimeZoneDialog()}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Time Zone
+                </Button>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Named time zones employees choose before check-in. UK Time should stay active for operations and reporting.
+              </p>
+            </CardHeader>
+            <CardContent>
+              {isTimeZonesLoading ? (
+                <div className="py-8 text-center text-muted-foreground">Loading...</div>
+              ) : attendanceTimeZones.length === 0 ? (
+                <div className="py-8 text-center">
+                  <Globe2 className="h-12 w-12 mx-auto mb-3 text-muted-foreground/50" />
+                  <p className="text-muted-foreground">No attendance time zones yet</p>
+                  <Button variant="outline" className="mt-4" onClick={() => openTimeZoneDialog()}>
+                    Add your first time zone
+                  </Button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {attendanceTimeZones.map((zone) => (
+                    <div key={zone.id} className="border rounded-lg p-4 flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="font-semibold truncate">{zone.name}</h3>
+                        <p className="text-sm text-muted-foreground truncate">{zone.time_zone}</p>
+                        <Badge className={zone.is_active ? 'badge-success mt-2 text-xs' : 'badge-destructive mt-2 text-xs'}>
+                          {zone.is_active ? 'Active' : 'Inactive'}
+                        </Badge>
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        <Button variant="ghost" size="icon" onClick={() => openTimeZoneDialog(zone)}>
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => deleteAttendanceTimeZone(zone.id)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
                   ))}
@@ -1902,6 +2221,15 @@ export default function Recruitment() {
                   </div>
                 </div>
                 <div className="space-y-2">
+                  <Label>SOP break (minutes)</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={scheduleForm.break_duration_minutes}
+                    onChange={(e) => setScheduleForm((f) => ({ ...f, break_duration_minutes: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
                   <Label>Shift type</Label>
                   <Select
                     value={scheduleForm.shift_type}
@@ -1943,6 +2271,56 @@ export default function Recruitment() {
                   <Button variant="outline" onClick={() => setIsScheduleDialogOpen(false)}>Cancel</Button>
                   <Button onClick={saveScheduleTemplate} disabled={isScheduleSaving}>
                     {editingScheduleTemplate ? 'Update' : 'Create'}
+                  </Button>
+                </DialogFooter>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Time zone dialog */}
+          <Dialog open={isTimeZoneDialogOpen} onOpenChange={setIsTimeZoneDialogOpen}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>{editingTimeZone ? 'Edit Time Zone' : 'New Time Zone'}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 pt-2">
+                <div className="space-y-2">
+                  <Label>Name</Label>
+                  <Input
+                    placeholder="e.g. UK Time, Pakistan Team"
+                    value={timeZoneForm.name}
+                    onChange={(e) => setTimeZoneForm((f) => ({ ...f, name: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Time zone</Label>
+                  <Select
+                    value={timeZoneForm.time_zone}
+                    onValueChange={(value) => setTimeZoneForm((f) => ({ ...f, time_zone: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select time zone" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {supportedTimeZones.map((zone) => (
+                        <SelectItem key={zone} value={zone}>
+                          {zone}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={timeZoneForm.is_active}
+                    onCheckedChange={(value) => setTimeZoneForm((f) => ({ ...f, is_active: value }))}
+                  />
+                  <Label>Active</Label>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsTimeZoneDialogOpen(false)}>Cancel</Button>
+                  <Button onClick={saveAttendanceTimeZone} disabled={isTimeZoneSaving}>
+                    {editingTimeZone ? 'Update' : 'Create'}
                   </Button>
                 </DialogFooter>
               </div>
@@ -2001,7 +2379,11 @@ export default function Recruitment() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {mockAccessControls.map((access) => (
+                {isAccessControlsLoading ? (
+                  <div className="text-center text-muted-foreground py-8">Loading access controls...</div>
+                ) : accessControls.length === 0 ? (
+                  <div className="text-center text-muted-foreground py-8">No access controls found</div>
+                ) : accessControls.map((access) => (
                   <div key={access.id} className="border rounded-lg p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <div>
@@ -2017,7 +2399,7 @@ export default function Recruitment() {
                         </Badge>
                         <Switch
                           checked={access.is_active}
-                          onCheckedChange={() => handleStatusToggle('Access Control', access.id, access.is_active)}
+                          onCheckedChange={() => handleAccessStatusToggle(access.id, access.is_active)}
                         />
                       </div>
                     </div>
@@ -2114,7 +2496,7 @@ export default function Recruitment() {
           </div>
 
           <div className="border-t pt-4 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="space-y-2">
                 <Label>Work Start</Label>
                 <Input
@@ -2129,6 +2511,15 @@ export default function Recruitment() {
                   type="time"
                   value={officeForm.work_end_time}
                   onChange={(e) => setOfficeForm({ ...officeForm, work_end_time: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>SOP Break (minutes)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={officeForm.break_duration_minutes}
+                  onChange={(e) => setOfficeForm({ ...officeForm, break_duration_minutes: e.target.value })}
                 />
               </div>
               <div className="space-y-2">
@@ -2262,6 +2653,7 @@ export default function Recruitment() {
                   <SelectValue placeholder="Select office" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="_remote">Remote</SelectItem>
                   {offices.map((office) => (
                     <SelectItem key={office.id} value={office.id}>
                       {office.name}

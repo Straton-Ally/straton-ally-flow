@@ -267,7 +267,7 @@ export function EditEmployeeForm({ employeeId, onSuccess, onCancel }: EditEmploy
         custom_work_start_time: customStart,
         custom_work_end_time: customEnd,
       };
-      let updateResult = await supabase.from('employees').update(payload).eq('id', employeeId);
+      const updateResult = await supabase.from('employees').update(payload).eq('id', employeeId);
       if (updateResult.error) {
         const msg = typeof updateResult.error === 'object' && 'message' in updateResult.error ? String((updateResult.error as { message?: unknown }).message) : '';
         if (msg.toLowerCase().includes('gender') && (msg.includes('does not exist') || msg.includes('column'))) {

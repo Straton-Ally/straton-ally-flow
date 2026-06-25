@@ -48,3 +48,49 @@ self.addEventListener('activate', (event) => {
     })(),
   );
 });
+
+self.addEventListener('notificationclick', (event) => {
+  const targetUrl = event.notification?.data?.url || '/';
+  event.notification.close();
+
+  event.waitUntil(
+    (async () => {
+      const clientList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+
+      for (const client of clientList) {
+        if ('focus' in client) {
+          client.postMessage({ type: 'FLOW_NOTIFICATION_CLICK', url: targetUrl });
+          await client.focus();
+          if ('navigate' in client) {
+            await client.navigate(targetUrl);
+          }
+          return;
+        }
+      }
+
+      if (self.clients.openWindow) {
+        await self.clients.openWindow(targetUrl);
+      }
+    })(),
+  );
+});
+
+self.addEventListener('push', (event) => {
+  if (!event.data) return;
+
+  let payload = {};
+  try {
+    payload = event.data.json();
+  } catch {
+    payload = { title: 'Notification', body: event.data.text() };
+  }
+
+  const title = payload.title || 'Notification';
+  const options = {
+    body: payload.body || '',
+    tag: payload.tag,
+    data: { url: payload.url || '/' },
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});

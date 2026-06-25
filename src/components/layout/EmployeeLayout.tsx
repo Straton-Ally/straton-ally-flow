@@ -6,7 +6,6 @@ import {
   CheckSquare, 
   Users, 
   Bell, 
-  MessageSquare, 
   LogOut,
   Menu,
   X
@@ -31,7 +30,6 @@ const navigationItems = [
   { id: 'tasks', label: 'Tasks', icon: CheckSquare },
   { id: 'team', label: 'Team', icon: Users },
   { id: 'notifications', label: 'Notifications', icon: Bell },
-  { id: 'chat', label: 'Chat', icon: MessageSquare },
 ];
 
 export function EmployeeLayout({ children, currentPage, onPageChange }: EmployeeLayoutProps) {

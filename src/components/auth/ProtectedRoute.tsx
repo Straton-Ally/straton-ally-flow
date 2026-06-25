@@ -27,12 +27,15 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (allowedRoles && user?.role && !allowedRoles.includes(user.role)) {
+  const hasAllowedRole = Boolean(allowedRoles && user?.role && allowedRoles.includes(user.role));
+  const hasTeamLeadAdminAccess = Boolean(allowedRoles?.includes('admin') && user?.isTeamLead);
+
+  if (allowedRoles && !hasAllowedRole && !hasTeamLeadAdminAccess) {
     // Redirect to appropriate dashboard based on role
-    if (user.role === 'admin') {
+    if (user?.role === 'admin' || user?.isTeamLead) {
       return <Navigate to="/admin/dashboard" replace />;
     }
-    if (user.role === 'employee') {
+    if (user?.role === 'employee') {
       return <Navigate to="/employee/dashboard" replace />;
     }
     return <Navigate to="/login" replace />;

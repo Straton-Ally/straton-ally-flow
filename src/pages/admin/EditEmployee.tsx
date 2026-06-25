@@ -286,11 +286,13 @@ export default function EditEmployee() {
     };
 
     const fetchOffices = async () => {
-      // Mock offices data - in real implementation this would fetch from database
-      const mockOffices = [
-        { id: '1', name: 'Headquarters' },
-      ];
-      setOffices(mockOffices);
+      const { data, error } = await supabase.from('offices').select('id, name').eq('is_active', true).order('name');
+      if (error) {
+        console.error('Error fetching offices:', error);
+        setOffices([]);
+        return;
+      }
+      setOffices(data || []);
     };
 
     fetchEmployeeData();

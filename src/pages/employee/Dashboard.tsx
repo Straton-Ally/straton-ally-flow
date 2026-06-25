@@ -67,14 +67,16 @@ export default function EmployeeDashboard() {
           if (emp) {
             const { data: attendance } = await supabase
               .from('attendance')
-              .select('status, in_time')
+              .select('status, in_time, check_in_at')
               .eq('employee_id', emp.id)
               .eq('date', today)
               .maybeSingle();
 
             if (attendance) {
+              const checkedIn = Boolean(attendance.in_time || attendance.check_in_at);
+              const statusLabel = checkedIn || attendance.status === 'present' ? 'Present' : attendance.status;
               setAttendanceToday(
-                `${attendance.status === 'present' ? 'Present' : attendance.status} ${
+                `${statusLabel} ${
                   attendance.in_time ? `at ${formatTime12h(attendance.in_time)}` : ''
                 }`
               );

@@ -5,10 +5,10 @@ import { usePWAInstall } from '@/hooks/usePWAInstall';
 import { useState } from 'react';
 
 export const PWAInstallPrompt = () => {
-  const { isInstallable, install } = usePWAInstall();
+  const { isInstallable, isInstalled, install } = usePWAInstall();
   const [dismissed, setDismissed] = useState(false);
 
-  if (!isInstallable || dismissed) return null;
+  if (!isInstallable || isInstalled || dismissed) return null;
 
   const handleInstall = async () => {
     const success = await install();

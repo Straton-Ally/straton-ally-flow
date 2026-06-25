@@ -81,9 +81,12 @@ export default {
         sm: "calc(var(--radius) - 4px)",
       },
       boxShadow: {
-        'soft': '0 2px 8px -2px rgba(0, 0, 0, 0.05)',
-        'elevated': '0 4px 12px -2px rgba(0, 0, 0, 0.08)',
-        'accent': '0 4px 14px -3px hsl(45 90% 60% / 0.3)',
+        'soft': 'var(--shadow-sm)',
+        'elevated': 'var(--shadow-md)',
+        'card': 'var(--shadow-card)',
+        'teal-glow': 'var(--shadow-teal-glow)',
+        'accent': 'var(--shadow-accent-glow)',
+        'coral-glow': 'var(--shadow-coral-glow)',
       },
       keyframes: {
         "accordion-down": {

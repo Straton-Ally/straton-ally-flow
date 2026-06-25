@@ -67,6 +67,35 @@ interface Office {
   };
 }
 
+interface OfficeSelectRow {
+  id: string;
+  name: string;
+  address: string;
+  city: string;
+  country: string;
+  postal_code: string | null;
+  phone: string | null;
+  email: string | null;
+  is_active: boolean;
+  created_at: string;
+  office_settings:
+    | {
+        work_start_time: string;
+        work_end_time: string;
+        timezone: string;
+        require_ip_whitelist: boolean;
+        geo_fencing_enabled: boolean;
+      }
+    | {
+        work_start_time: string;
+        work_end_time: string;
+        timezone: string;
+        require_ip_whitelist: boolean;
+        geo_fencing_enabled: boolean;
+      }[]
+    | null;
+}
+
 export default function Offices() {
   const [offices, setOffices] = useState<Office[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -74,35 +103,61 @@ export default function Offices() {
   const { toast } = useToast();
 
   const fetchOffices = async () => {
+    setIsLoading(true);
     try {
-      // For now, create mock data since the new tables aren't fully integrated yet
-      const mockOffices: Office[] = [
-        {
-          id: '1',
-          name: 'Headquarters',
-          address: '123 Business Avenue',
-          city: 'New York',
-          country: 'United States',
-          postal_code: '10001',
-          phone: '+1-555-0123',
-          email: 'hq@stratonally.com',
-          is_active: true,
-          created_at: new Date().toISOString(),
-          settings: {
-            work_start_time: '09:00:00',
-            work_end_time: '17:00:00',
-            timezone: 'America/New_York',
-            require_ip_whitelist: false,
-            geo_fencing_enabled: false,
-          },
-          _count: {
-            employees: 25,
-            departments: 5,
-          },
-        },
-      ];
+      const { data, error } = await supabase
+        .from('offices')
+        .select('id,name,address,city,country,postal_code,phone,email,is_active,created_at,office_settings(work_start_time,work_end_time,timezone,require_ip_whitelist,geo_fencing_enabled)')
+        .order('created_at', { ascending: false });
 
-      setOffices(mockOffices);
+      if (error) throw error;
+
+      const rows = (data ?? []) as OfficeSelectRow[];
+      const officeIds = rows.map((office) => office.id);
+      const counts = await Promise.all(
+        officeIds.map(async (officeId) => {
+          const [{ count: employeesCount }, departmentsResult] = await Promise.all([
+            supabase.from('employees').select('*', { count: 'exact', head: true }).eq('office_id', officeId),
+            (supabase as unknown as {
+              from: (table: 'office_departments') => {
+                select: (
+                  columns: string,
+                  options: { count: 'exact'; head: true },
+                ) => {
+                  eq: (column: 'office_id', value: string) => Promise<{ count: number | null; error: Error | null }>;
+                };
+              };
+            })
+              .from('office_departments')
+              .select('*', { count: 'exact', head: true })
+              .eq('office_id', officeId),
+          ]);
+
+          if (departmentsResult.error) throw departmentsResult.error;
+          return [officeId, { employees: employeesCount ?? 0, departments: departmentsResult.count ?? 0 }] as const;
+        }),
+      );
+      const countsByOffice = new Map(counts);
+
+      setOffices(
+        rows.map((office) => {
+          const settings = Array.isArray(office.office_settings) ? office.office_settings[0] : office.office_settings;
+          return {
+            id: office.id,
+            name: office.name,
+            address: office.address,
+            city: office.city,
+            country: office.country,
+            postal_code: office.postal_code,
+            phone: office.phone,
+            email: office.email,
+            is_active: office.is_active,
+            created_at: office.created_at,
+            settings: settings ?? null,
+            _count: countsByOffice.get(office.id) ?? { employees: 0, departments: 0 },
+          };
+        }),
+      );
     } catch (error) {
       console.error('Error fetching offices:', error);
       toast({
@@ -127,7 +182,8 @@ export default function Offices() {
 
   const handleStatusToggle = async (officeId: string, currentStatus: boolean) => {
     try {
-      // Mock update - in real implementation this would update the database
+      const { error } = await supabase.from('offices').update({ is_active: !currentStatus }).eq('id', officeId);
+      if (error) throw error;
       toast({
         title: 'Status updated',
         description: `Office has been ${!currentStatus ? 'activated' : 'deactivated'}`,
@@ -146,7 +202,8 @@ export default function Offices() {
     if (!confirm('Are you sure you want to delete this office? This action cannot be undone.')) return;
 
     try {
-      // Mock delete - in real implementation this would delete from database
+      const { error } = await supabase.from('offices').delete().eq('id', officeId);
+      if (error) throw error;
       toast({
         title: 'Office deleted',
         description: 'Office has been removed successfully',

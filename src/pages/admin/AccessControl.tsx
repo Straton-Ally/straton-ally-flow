@@ -70,6 +70,38 @@ interface AccessControl {
   };
 }
 
+interface AccessControlSelectRow {
+  id: string;
+  employee_id: string;
+  office_id: string;
+  access_level: 'full' | 'restricted' | 'read_only';
+  allowed_areas: string[] | null;
+  time_restrictions: Record<string, { start: string; end: string }> | null;
+  ip_override: boolean;
+  is_active: boolean;
+  effective_date: string;
+  expiry_date: string | null;
+  created_at: string;
+}
+
+interface EmployeeSelectRow {
+  id: string;
+  user_id: string;
+  employee_id: string;
+}
+
+interface ProfileSelectRow {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+}
+
+interface OfficeSelectRow {
+  id: string;
+  name: string;
+  office_settings: { require_ip_whitelist: boolean; geo_fencing_enabled: boolean } | { require_ip_whitelist: boolean; geo_fencing_enabled: boolean }[] | null;
+}
+
 export default function AccessControl() {
   const [accessControls, setAccessControls] = useState<AccessControl[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -77,78 +109,88 @@ export default function AccessControl() {
   const { toast } = useToast();
 
   const fetchAccessControls = async () => {
+    setIsLoading(true);
     try {
-      // Mock data for now - in real implementation this would fetch from database
-      const mockAccessControls: AccessControl[] = [
-        {
-          id: '1',
-          employee_id: '1',
-          office_id: '1',
-          access_level: 'full',
-          allowed_areas: ['main_office', 'server_room', 'conference_rooms'],
-          time_restrictions: {
-            monday: { start: '09:00', end: '17:00' },
-            tuesday: { start: '09:00', end: '17:00' },
-            wednesday: { start: '09:00', end: '17:00' },
-            thursday: { start: '09:00', end: '17:00' },
-            friday: { start: '09:00', end: '17:00' },
-          },
-          ip_override: true,
-          is_active: true,
-          effective_date: '2024-01-01',
-          expiry_date: null,
-          created_at: new Date().toISOString(),
-          employee: {
-            employee_id: 'EMP001',
-            profile: {
-              full_name: 'John Doe',
-              email: 'john@example.com',
-            },
-          },
-          office: {
-            name: 'Headquarters',
-            settings: {
-              require_ip_whitelist: false,
-              geo_fencing_enabled: false,
-            },
-          },
-        },
-        {
-          id: '2',
-          employee_id: '2',
-          office_id: '1',
-          access_level: 'restricted',
-          allowed_areas: ['main_office', 'break_room'],
-          time_restrictions: {
-            monday: { start: '08:00', end: '16:00' },
-            tuesday: { start: '08:00', end: '16:00' },
-            wednesday: { start: '08:00', end: '16:00' },
-            thursday: { start: '08:00', end: '16:00' },
-            friday: { start: '08:00', end: '16:00' },
-          },
-          ip_override: false,
-          is_active: true,
-          effective_date: '2024-01-01',
-          expiry_date: null,
-          created_at: new Date().toISOString(),
-          employee: {
-            employee_id: 'EMP002',
-            profile: {
-              full_name: 'Jane Smith',
-              email: 'jane@example.com',
-            },
-          },
-          office: {
-            name: 'Headquarters',
-            settings: {
-              require_ip_whitelist: true,
-              geo_fencing_enabled: true,
-            },
-          },
-        },
-      ];
+      const accessClient = supabase as unknown as {
+        from: (table: 'access_control') => {
+          select: (columns: string) => {
+            order: (
+              column: 'created_at',
+              options: { ascending: boolean },
+            ) => Promise<{ data: AccessControlSelectRow[] | null; error: Error | null }>;
+          };
+        };
+      };
 
-      setAccessControls(mockAccessControls);
+      const { data, error } = await accessClient
+        .from('access_control')
+        .select('id,employee_id,office_id,access_level,allowed_areas,time_restrictions,ip_override,is_active,effective_date,expiry_date,created_at')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const rows = data ?? [];
+      const employeeIds = Array.from(new Set(rows.map((row) => row.employee_id)));
+      const officeIds = Array.from(new Set(rows.map((row) => row.office_id)));
+
+      const { data: employeesData, error: employeesError } = employeeIds.length
+        ? await supabase.from('employees').select('id,user_id,employee_id').in('id', employeeIds)
+        : { data: [], error: null };
+      if (employeesError) throw employeesError;
+
+      const employeeRows = (employeesData ?? []) as EmployeeSelectRow[];
+      const userIds = employeeRows.map((employee) => employee.user_id);
+
+      const { data: profilesData, error: profilesError } = userIds.length
+        ? await supabase.from('profiles').select('id,full_name,email').in('id', userIds)
+        : { data: [], error: null };
+      if (profilesError) throw profilesError;
+
+      const { data: officesData, error: officesError } = officeIds.length
+        ? await supabase.from('offices').select('id,name,office_settings(require_ip_whitelist,geo_fencing_enabled)').in('id', officeIds)
+        : { data: [], error: null };
+      if (officesError) throw officesError;
+
+      const employeesById = new Map<string, EmployeeSelectRow>();
+      for (const employee of employeeRows) employeesById.set(employee.id, employee);
+
+      const profilesById = new Map<string, ProfileSelectRow>();
+      for (const profile of (profilesData ?? []) as ProfileSelectRow[]) profilesById.set(profile.id, profile);
+
+      const officesById = new Map<string, OfficeSelectRow>();
+      for (const office of (officesData ?? []) as OfficeSelectRow[]) officesById.set(office.id, office);
+
+      setAccessControls(
+        rows.map((row) => {
+          const employee = employeesById.get(row.employee_id);
+          const profile = employee ? profilesById.get(employee.user_id) : null;
+          const office = officesById.get(row.office_id);
+          const settings = office
+            ? Array.isArray(office.office_settings)
+              ? office.office_settings[0]
+              : office.office_settings
+            : null;
+
+          return {
+            ...row,
+            allowed_areas: row.allowed_areas ?? [],
+            employee: {
+              employee_id: employee?.employee_id ?? '—',
+              profile: {
+                full_name: profile?.full_name ?? 'Unknown employee',
+                email: profile?.email ?? '',
+              },
+            },
+            office: {
+              name: office?.name ?? 'Unknown office',
+              settings: {
+                require_ip_whitelist: Boolean(settings?.require_ip_whitelist),
+                geo_fencing_enabled: Boolean(settings?.geo_fencing_enabled),
+              },
+            },
+          };
+        }),
+      );
     } catch (error) {
       console.error('Error fetching access controls:', error);
       toast({
@@ -174,7 +216,16 @@ export default function AccessControl() {
 
   const handleStatusToggle = async (accessId: string, currentStatus: boolean) => {
     try {
-      // Mock update - in real implementation this would update the database
+      const accessClient = supabase as unknown as {
+        from: (table: 'access_control') => {
+          update: (values: { is_active: boolean }) => {
+            eq: (column: 'id', value: string) => Promise<{ error: Error | null }>;
+          };
+        };
+      };
+      const { error } = await accessClient.from('access_control').update({ is_active: !currentStatus }).eq('id', accessId);
+      if (error) throw error;
+
       toast({
         title: 'Access updated',
         description: `Access has been ${!currentStatus ? 'granted' : 'revoked'}`,

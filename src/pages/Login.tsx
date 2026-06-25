@@ -1,14 +1,21 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Eye, EyeOff, Loader2, ArrowRight } from 'lucide-react';
+import { Eye, EyeOff, Loader2, ArrowRight, Download, Share, PlusSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { signIn, getRedirectPath, getUserRole } from '@/lib/auth';
+import { usePWAInstall } from '@/hooks/usePWAInstall';
+import { signIn, getCurrentUser, getRedirectPath } from '@/lib/auth';
 import { AnimatedCharacters } from '@/components/ui/animated-characters';
 const loginSchema = z.object({
   email: z.string().min(1, 'Email username is required').regex(/^[a-zA-Z0-9._-]+$/, 'Invalid email username format'),
@@ -19,7 +26,9 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
+  const [isInstallHelpOpen, setIsInstallHelpOpen] = useState(false);
   const navigate = useNavigate();
+  const { canShowInstall, isInstallable, isIOS, install } = usePWAInstall();
   const {
     toast
   } = useToast();
@@ -52,8 +61,8 @@ export default function Login() {
         return;
       }
       if (user) {
-        const role = await getUserRole(user.id);
-        const redirectPath = getRedirectPath(role);
+        const authUser = await getCurrentUser();
+        const redirectPath = getRedirectPath(authUser?.role ?? null, authUser?.isTeamLead ?? false);
         navigate(redirectPath, {
           replace: true
         });
@@ -67,6 +76,20 @@ export default function Login() {
     } finally {
       setIsLoading(false);
     }
+  };
+  const handleInstallClick = async () => {
+    if (isInstallable) {
+      const installed = await install();
+      if (!installed) {
+        toast({
+          title: 'Install not completed',
+          description: 'You can install FLOW from your browser menu anytime.',
+        });
+      }
+      return;
+    }
+
+    setIsInstallHelpOpen(true);
   };
   return <div className="min-h-screen flex">
       {/* Left side - Animated Characters */}
@@ -113,6 +136,43 @@ export default function Login() {
               </p>
             </div>
 
+            {canShowInstall && (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full h-12 justify-center gap-2 border-accent/40 bg-accent/5 text-foreground hover:bg-accent/10"
+                  onClick={handleInstallClick}
+                >
+                  <Download className="h-5 w-5" />
+                  Install FLOW app
+                </Button>
+                <Dialog open={isInstallHelpOpen} onOpenChange={setIsInstallHelpOpen}>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Install FLOW app</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4 text-sm text-muted-foreground">
+                    {isIOS ? (
+                      <>
+                        <div className="flex gap-3">
+                          <Share className="h-5 w-5 shrink-0 text-foreground" />
+                          <p>Open this page in Safari, tap Share, then choose Add to Home Screen.</p>
+                        </div>
+                        <div className="flex gap-3">
+                          <PlusSquare className="h-5 w-5 shrink-0 text-foreground" />
+                          <p>Confirm the name and tap Add. FLOW will open like a normal app from your home screen.</p>
+                        </div>
+                      </>
+                    ) : (
+                      <p>Use your browser menu and choose Install app or Add to Home screen.</p>
+                    )}
+                  </div>
+                </DialogContent>
+                </Dialog>
+              </>
+            )}
+
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
               <div className="space-y-2">
                 <Label htmlFor="email" className="text-sm font-medium">
@@ -137,9 +197,14 @@ export default function Login() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-sm font-medium">
-                  Password
-                </Label>
+                <div className="flex items-center justify-between gap-4">
+                  <Label htmlFor="password" className="text-sm font-medium">
+                    Password
+                  </Label>
+                  <Link to="/forgot-password" className="text-sm font-medium text-accent hover:text-accent/80">
+                    Forgot password?
+                  </Link>
+                </div>
                 <div className="relative">
                   <Input id="password" type={showPassword ? 'text' : 'password'} placeholder="••••••••" {...register('password')} className="h-12 bg-secondary/50 border-border focus:border-accent focus:ring-accent/20 pr-10" disabled={isLoading} onFocus={() => setIsTyping(true)} onBlur={() => setIsTyping(false)} />
                   <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors" tabIndex={-1}>

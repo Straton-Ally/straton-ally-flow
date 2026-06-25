@@ -39,70 +39,317 @@ export type Database = {
   }
   public: {
     Tables: {
+      access_logs: {
+        Row: {
+          access_method: string | null
+          access_type: string
+          created_at: string
+          denial_reason: string | null
+          employee_id: string | null
+          id: string
+          ip_address: string | null
+          location_data: Json | null
+          office_id: string
+          success: boolean
+          timestamp: string
+          user_agent: string | null
+        }
+        Insert: {
+          access_method?: string | null
+          access_type: string
+          created_at?: string
+          denial_reason?: string | null
+          employee_id?: string | null
+          id?: string
+          ip_address?: string | null
+          location_data?: Json | null
+          office_id: string
+          success?: boolean
+          timestamp?: string
+          user_agent?: string | null
+        }
+        Update: {
+          access_method?: string | null
+          access_type?: string
+          created_at?: string
+          denial_reason?: string | null
+          employee_id?: string | null
+          id?: string
+          ip_address?: string | null
+          location_data?: Json | null
+          office_id?: string
+          success?: boolean
+          timestamp?: string
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "access_logs_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "access_logs_office_id_fkey"
+            columns: ["office_id"]
+            isOneToOne: false
+            referencedRelation: "offices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      audit_logs: {
+        Row: {
+          actor_email: string | null
+          actor_name: string | null
+          actor_user_id: string | null
+          category: string
+          created_at: string
+          event_type: string
+          id: string
+          ip_address: string | null
+          message: string
+          metadata: Json
+          severity: string
+          target_id: string | null
+          target_table: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          actor_email?: string | null
+          actor_name?: string | null
+          actor_user_id?: string | null
+          category?: string
+          created_at?: string
+          event_type: string
+          id?: string
+          ip_address?: string | null
+          message: string
+          metadata?: Json
+          severity?: string
+          target_id?: string | null
+          target_table?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          actor_email?: string | null
+          actor_name?: string | null
+          actor_user_id?: string | null
+          category?: string
+          created_at?: string
+          event_type?: string
+          id?: string
+          ip_address?: string | null
+          message?: string
+          metadata?: Json
+          severity?: string
+          target_id?: string | null
+          target_table?: string | null
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
       attendance: {
         Row: {
+          attendance_time_zone: string | null
+          attendance_time_zone_id: string | null
+          attendance_time_zone_name: string | null
           break_duration: string | null
           break_start_at: string | null
           break_total_minutes: number
           check_in_at: string | null
           check_in_ip: string | null
           check_in_location: Json | null
+          check_in_local_time: string | null
+          check_in_uk_time: string | null
           check_out_at: string | null
           check_out_ip: string | null
           check_out_location: Json | null
+          check_out_local_time: string | null
+          check_out_uk_time: string | null
           created_at: string
           date: string
           employee_id: string
+          expected_check_out_at: string | null
           id: string
           in_time: string | null
+          last_verified_at: string | null
+          last_verified_ip: string | null
+          last_verified_location: Json | null
           notes: string | null
           out_time: string | null
           status: string
+          checkout_reminder_sent_at: string | null
+          auto_checked_out_at: string | null
+          auto_checkout_email_sent_at: string | null
           total_work_minutes: number | null
         }
         Insert: {
+          attendance_time_zone?: string | null
+          attendance_time_zone_id?: string | null
+          attendance_time_zone_name?: string | null
           break_duration?: string | null
           break_start_at?: string | null
           break_total_minutes?: number
           check_in_at?: string | null
           check_in_ip?: string | null
           check_in_location?: Json | null
+          check_in_local_time?: string | null
+          check_in_uk_time?: string | null
           check_out_at?: string | null
           check_out_ip?: string | null
           check_out_location?: Json | null
+          check_out_local_time?: string | null
+          check_out_uk_time?: string | null
           created_at?: string
           date: string
           employee_id: string
+          expected_check_out_at?: string | null
           id?: string
           in_time?: string | null
+          last_verified_at?: string | null
+          last_verified_ip?: string | null
+          last_verified_location?: Json | null
           notes?: string | null
           out_time?: string | null
           status: string
+          checkout_reminder_sent_at?: string | null
+          auto_checked_out_at?: string | null
+          auto_checkout_email_sent_at?: string | null
           total_work_minutes?: number | null
         }
         Update: {
+          attendance_time_zone?: string | null
+          attendance_time_zone_id?: string | null
+          attendance_time_zone_name?: string | null
           break_duration?: string | null
           break_start_at?: string | null
           break_total_minutes?: number
           check_in_at?: string | null
           check_in_ip?: string | null
           check_in_location?: Json | null
+          check_in_local_time?: string | null
+          check_in_uk_time?: string | null
           check_out_at?: string | null
           check_out_ip?: string | null
           check_out_location?: Json | null
+          check_out_local_time?: string | null
+          check_out_uk_time?: string | null
           created_at?: string
           date?: string
           employee_id?: string
+          expected_check_out_at?: string | null
           id?: string
           in_time?: string | null
+          last_verified_at?: string | null
+          last_verified_ip?: string | null
+          last_verified_location?: Json | null
           notes?: string | null
           out_time?: string | null
           status?: string
+          checkout_reminder_sent_at?: string | null
+          auto_checked_out_at?: string | null
+          auto_checkout_email_sent_at?: string | null
           total_work_minutes?: number | null
         }
         Relationships: [
           {
             foreignKeyName: "attendance_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_attendance_time_zone_id_fkey"
+            columns: ["attendance_time_zone_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_time_zones"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      attendance_time_zones: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          time_zone: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          time_zone: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          time_zone?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      attendance_overtime_requests: {
+        Row: {
+          attendance_id: string
+          created_at: string
+          date: string
+          employee_id: string
+          id: string
+          reason: string
+          requested_at: string
+          response_notes: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: 'pending' | 'approved' | 'declined'
+          updated_at: string
+        }
+        Insert: {
+          attendance_id: string
+          created_at?: string
+          date: string
+          employee_id: string
+          id?: string
+          reason?: string
+          requested_at?: string
+          response_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: 'pending' | 'approved' | 'declined'
+          updated_at?: string
+        }
+        Update: {
+          attendance_id?: string
+          created_at?: string
+          date?: string
+          employee_id?: string
+          id?: string
+          reason?: string
+          requested_at?: string
+          response_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: 'pending' | 'approved' | 'declined'
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_overtime_requests_attendance_id_fkey"
+            columns: ["attendance_id"]
+            isOneToOne: false
+            referencedRelation: "attendance"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_overtime_requests_employee_id_fkey"
             columns: ["employee_id"]
             isOneToOne: false
             referencedRelation: "employees"
@@ -292,6 +539,51 @@ export type Database = {
           },
         ]
       }
+      email_outbox: {
+        Row: {
+          attempts: number
+          body: string
+          created_at: string
+          id: string
+          last_error: string | null
+          provider: string
+          recipient_email: string
+          recipient_user_id: string | null
+          sent_at: string | null
+          status: 'pending' | 'processing' | 'sent' | 'failed'
+          subject: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          body: string
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          provider?: string
+          recipient_email: string
+          recipient_user_id?: string | null
+          sent_at?: string | null
+          status?: 'pending' | 'processing' | 'sent' | 'failed'
+          subject: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          body?: string
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          provider?: string
+          recipient_email?: string
+          recipient_user_id?: string | null
+          sent_at?: string | null
+          status?: 'pending' | 'processing' | 'sent' | 'failed'
+          subject?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       offices: {
         Row: {
           address: string
@@ -418,6 +710,39 @@ export type Database = {
           ip_address?: string | null
           login_at?: string
           success?: boolean
+          user_agent?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      notification_push_subscriptions: {
+        Row: {
+          created_at: string
+          endpoint: string
+          id: string
+          last_seen_at: string
+          subscription: Json
+          updated_at: string
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          endpoint: string
+          id?: string
+          last_seen_at?: string
+          subscription: Json
+          updated_at?: string
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          endpoint?: string
+          id?: string
+          last_seen_at?: string
+          subscription?: Json
+          updated_at?: string
           user_agent?: string | null
           user_id?: string
         }
@@ -658,11 +983,13 @@ export type Database = {
       work_notifications: {
         Row: {
           actor_id: string | null
+          action_url: string | null
           body: string | null
           channel_id: string | null
           created_at: string
           id: string
           is_read: boolean
+          metadata: Json
           message_id: string | null
           office_id: string | null
           read_at: string | null
@@ -672,11 +999,13 @@ export type Database = {
         }
         Insert: {
           actor_id?: string | null
+          action_url?: string | null
           body?: string | null
           channel_id?: string | null
           created_at?: string
           id?: string
           is_read?: boolean
+          metadata?: Json
           message_id?: string | null
           office_id?: string | null
           read_at?: string | null
@@ -686,11 +1015,13 @@ export type Database = {
         }
         Update: {
           actor_id?: string | null
+          action_url?: string | null
           body?: string | null
           channel_id?: string | null
           created_at?: string
           id?: string
           is_read?: boolean
+          metadata?: Json
           message_id?: string | null
           office_id?: string | null
           read_at?: string | null
@@ -802,6 +1133,18 @@ export type Database = {
       get_user_role: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]
+      }
+      submit_overtime_request: {
+        Args: { _attendance_id: string; _reason?: string }
+        Returns: Database["public"]["Tables"]["attendance_overtime_requests"]["Row"]
+      }
+      attendance_process_due_events: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
+      auto_checkout_attendance: {
+        Args: { _attendance_id: string; _checkout_at?: string }
+        Returns: boolean
       }
       has_role: {
         Args: {

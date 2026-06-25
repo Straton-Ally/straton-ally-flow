@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Banknote, TrendingUp, Calendar, Download, Eye } from 'lucide-react';
+import { Banknote, TrendingUp, Calendar, Download, Eye, EyeOff } from 'lucide-react';
 import { formatCurrencyPKR } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -35,6 +35,7 @@ export function SalaryProgress() {
   const [payslips, setPayslips] = useState<Payslip[]>([]);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
   const [isLoading, setIsLoading] = useState(true);
+  const [isSalaryVisible, setIsSalaryVisible] = useState(false);
 
   useEffect(() => {
     fetchSalaryData();
@@ -92,26 +93,7 @@ export function SalaryProgress() {
         })));
       }
 
-      // Generate mock payslip data (in real app, this would come from database)
-      const mockPayslips: Payslip[] = [];
-      for (let month = 1; month <= 12; month++) {
-        const monthDate = new Date(parseInt(selectedYear), month - 1, 1);
-        const isPastMonth = monthDate < new Date();
-        const isCurrentMonth = monthDate.getMonth() === new Date().getMonth() && 
-                              monthDate.getFullYear() === new Date().getFullYear();
-        
-        mockPayslips.push({
-          id: `${selectedYear}-${month}`,
-          month: format(monthDate, 'MMMM yyyy'),
-          basic_salary: currentSalaryData?.amount || 0,
-          allowances: Math.round((currentSalaryData?.amount || 0) * 0.2), // 20% allowances
-          deductions: Math.round((currentSalaryData?.amount || 0) * 0.1), // 10% deductions
-          net_salary: Math.round((currentSalaryData?.amount || 0) * 1.1), // Basic + allowances - deductions
-          payment_date: isPastMonth ? format(new Date(parseInt(selectedYear), month, 5), 'yyyy-MM-dd') : '',
-          status: isPastMonth ? 'paid' : isCurrentMonth ? 'processing' : 'pending'
-        });
-      }
-      setPayslips(mockPayslips);
+      setPayslips([]);
 
     } catch (error) {
       console.error('Error fetching salary data:', error);
@@ -131,6 +113,9 @@ export function SalaryProgress() {
     net_salary: payslip.net_salary,
     basic_salary: payslip.basic_salary
   }));
+
+  const formatSalaryAmount = (amount: number) =>
+    isSalaryVisible ? formatCurrencyPKR(amount) : '******';
 
   const generateYearOptions = () => {
     const options = [];
@@ -188,10 +173,22 @@ export function SalaryProgress() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-end justify-between">
+          <div className="flex items-end justify-between gap-4">
             <div>
-              <div className="text-3xl font-bold text-blue-900">
-                {currentSalary ? formatCurrencyPKR(currentSalary.amount) : formatCurrencyPKR(0)}
+              <div className="flex items-center gap-2">
+                <div className="text-3xl font-bold text-blue-900">
+                  {currentSalary ? formatSalaryAmount(currentSalary.amount) : formatSalaryAmount(0)}
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-blue-700 hover:bg-blue-100 hover:text-blue-900"
+                  onClick={() => setIsSalaryVisible((visible) => !visible)}
+                  aria-label={isSalaryVisible ? 'Hide salary' : 'Show salary'}
+                >
+                  {isSalaryVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
               </div>
               <div className="text-sm text-blue-700">
                 {currentSalary?.salary_type === 'monthly' ? 'per month' : 'per hour'}
@@ -218,7 +215,7 @@ export function SalaryProgress() {
               <div>
                 <p className="text-sm text-muted-foreground">YTD Earnings</p>
                 <p className="text-xl font-bold text-green-600">
-                  {formatCurrencyPKR(payslips.filter(p => p.status === 'paid').reduce((sum, p) => sum + p.net_salary, 0))}
+                  {formatSalaryAmount(payslips.filter(p => p.status === 'paid').reduce((sum, p) => sum + p.net_salary, 0))}
                 </p>
               </div>
             </div>
@@ -232,7 +229,7 @@ export function SalaryProgress() {
               <div>
                 <p className="text-sm text-muted-foreground">Monthly Average</p>
                 <p className="text-xl font-bold text-blue-600">
-                  {currentSalary ? formatCurrencyPKR(currentSalary.amount) : formatCurrencyPKR(0)}
+                  {currentSalary ? formatSalaryAmount(currentSalary.amount) : formatSalaryAmount(0)}
                 </p>
               </div>
             </div>
@@ -262,7 +259,11 @@ export function SalaryProgress() {
             <CardTitle>Salary History</CardTitle>
           </CardHeader>
           <CardContent>
-            {chartData.length > 0 ? (
+            {!isSalaryVisible ? (
+              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                Salary hidden
+              </div>
+            ) : chartData.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -286,16 +287,22 @@ export function SalaryProgress() {
             <CardTitle>Monthly Earnings ({selectedYear})</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={monthlyEarnings}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="month" />
-                <YAxis />
-                <Tooltip formatter={(value) => [formatCurrencyPKR(Number(value)), 'Amount']} />
-                <Area type="monotone" dataKey="net_salary" stroke="#10b981" fill="#10b981" fillOpacity={0.3} />
-                <Area type="monotone" dataKey="basic_salary" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.3} />
-              </AreaChart>
-            </ResponsiveContainer>
+            {!isSalaryVisible ? (
+              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                Salary hidden
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <AreaChart data={monthlyEarnings}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="month" />
+                  <YAxis />
+                  <Tooltip formatter={(value) => [formatCurrencyPKR(Number(value)), 'Amount']} />
+                  <Area type="monotone" dataKey="net_salary" stroke="#10b981" fill="#10b981" fillOpacity={0.3} />
+                  <Area type="monotone" dataKey="basic_salary" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.3} />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -312,8 +319,8 @@ export function SalaryProgress() {
                 <div className="flex-1">
                   <div className="font-medium">{payslip.month}</div>
                   <div className="text-sm text-muted-foreground">
-                    Basic: {formatCurrencyPKR(payslip.basic_salary)} | 
-                    Net: {formatCurrencyPKR(payslip.net_salary)}
+                    Basic: {formatSalaryAmount(payslip.basic_salary)} |
+                    Net: {formatSalaryAmount(payslip.net_salary)}
                   </div>
                   {payslip.payment_date && (
                     <div className="text-xs text-muted-foreground">

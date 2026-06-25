@@ -33,21 +33,67 @@ export default function AdminDashboard() {
   useEffect(() => {
     async function fetchDashboardData() {
       try {
-        const { count: employeeCount } = await supabase
+        if (user?.isTeamLead && !user.officeId) {
+          setStats({
+            totalEmployees: 0,
+            presentToday: 0,
+            onLeave: 0,
+            pendingLeaves: 0,
+            departments: 0,
+          });
+          return;
+        }
+
+        let employeeCountQuery = supabase
           .from('employees')
           .select('*', { count: 'exact', head: true });
+        if (user?.isTeamLead && user.officeId) {
+          employeeCountQuery = employeeCountQuery.eq('office_id', user.officeId);
+        }
+        const { count: employeeCount } = await employeeCountQuery;
 
-        const { count: deptCount } = await supabase
-          .from('departments')
-          .select('*', { count: 'exact', head: true });
+        let deptCount = 0;
+        if (user?.isTeamLead && user.officeId) {
+          const { data: officeEmployees } = await supabase
+            .from('employees')
+            .select('department_id')
+            .eq('office_id', user.officeId);
+          deptCount = new Set((officeEmployees ?? []).map((employee) => employee.department_id).filter(Boolean)).size;
+        } else {
+          const { count } = await supabase
+              .from('departments')
+              .select('*', { count: 'exact', head: true });
+          deptCount = count || 0;
+        }
 
         const today = format(new Date(), 'yyyy-MM-dd');
-        const { data: attendanceData } = await supabase
+        let attendanceQuery = supabase
           .from('attendance')
-          .select('status')
+          .select('status,in_time,check_in_at')
           .eq('date', today);
 
-        const presentToday = attendanceData?.filter(a => a.status === 'present').length || 0;
+        if (user?.isTeamLead && user.officeId) {
+          const { data: officeEmployees } = await supabase
+            .from('employees')
+            .select('id')
+            .eq('office_id', user.officeId);
+          const officeEmployeeIds = (officeEmployees ?? []).map((employee) => employee.id);
+          if (officeEmployeeIds.length === 0) {
+            setStats({
+              totalEmployees: employeeCount || 0,
+              presentToday: 0,
+              onLeave: 0,
+              pendingLeaves: 0,
+              departments: deptCount,
+            });
+            return;
+          }
+          attendanceQuery = attendanceQuery.in('employee_id', officeEmployeeIds);
+        }
+
+        const { data: attendanceData } = await attendanceQuery;
+
+        const presentToday = attendanceData?.filter(a => a.status === 'present' || Boolean(a.in_time || a.check_in_at)).length || 0;
         const onLeave = attendanceData?.filter(a => a.status === 'leave').length || 0;
 
         setStats({
@@ -55,7 +101,7 @@ export default function AdminDashboard() {
           presentToday,
           onLeave,
           pendingLeaves: 34,
-          departments: deptCount || 0,
+          departments: deptCount,
         });
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
@@ -65,7 +111,7 @@ export default function AdminDashboard() {
     }
 
     fetchDashboardData();
-  }, []);
+  }, [user?.isTeamLead, user?.officeId]);
 
   const attendanceRate = stats.totalEmployees > 0 
     ? Math.round((stats.presentToday / stats.totalEmployees) * 100) 
@@ -103,16 +149,16 @@ export default function AdminDashboard() {
   ];
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-5">
       <DashboardHeader 
         userName={user?.fullName || 'Martin Butler'} 
         userRole="HR Executive" 
       />
 
       {/* Row 1: 4 Metrics + Payroll + Schedule */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         {/* Left: 2x2 Metrics Grid */}
-        <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <MetricCard
             title="Attendance Rate"
             value={`${attendanceRate}%`}
@@ -159,7 +205,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* Row 2: Attendance Heatmap + Project Table */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <AttendanceHeatmap rate={98} trend={2.5} />
         <ProjectStatusTable projects={projects} />
       </div>

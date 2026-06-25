@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, CheckSquare, Clock, Banknote, MessageSquare, Users, Bell } from 'lucide-react';
+import { Calendar, CheckSquare, Clock, Banknote, Briefcase, Bell, Eye, EyeOff, Calculator } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { endOfMonth, format, startOfMonth } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
-import { mockTasks } from '@/data/mockTasks';
+import { getDateInTimeZone, PAKISTAN_TIME_ZONE } from '@/lib/timezones';
+import { canAccessFlowMath } from '@/lib/flowmath';
+
+// Existing workspace v2 tables are ahead of generated Supabase types.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const workspaceDb = supabase as any;
 
 export default function EmployeeDashboard() {
   const { user } = useAuth();
@@ -15,6 +20,10 @@ export default function EmployeeDashboard() {
   const [monthPresentDays, setMonthPresentDays] = useState<number | null>(null);
   const [salaryAmount, setSalaryAmount] = useState<number | null>(null);
   const [salaryType, setSalaryType] = useState<string | null>(null);
+  const [isSalaryVisible, setIsSalaryVisible] = useState(false);
+  const [tasksTotal, setTasksTotal] = useState(0);
+  const [tasksPending, setTasksPending] = useState(0);
+  const [hasFlowMathAccess, setHasFlowMathAccess] = useState(false);
 
   const currentHour = new Date().getHours();
   const greeting =
@@ -53,7 +62,7 @@ export default function EmployeeDashboard() {
     const fetchTodayStatus = async () => {
       if (!user?.id) return;
 
-      const today = format(new Date(), 'yyyy-MM-dd');
+      const today = getDateInTimeZone(new Date(), PAKISTAN_TIME_ZONE);
       const monthStart = format(startOfMonth(new Date()), 'yyyy-MM-dd');
       const monthEnd = format(endOfMonth(new Date()), 'yyyy-MM-dd');
 
@@ -69,10 +78,21 @@ export default function EmployeeDashboard() {
         setMonthPresentDays(null);
         setSalaryAmount(null);
         setSalaryType(null);
+        setTasksTotal(0);
+        setTasksPending(0);
         return;
       }
 
-      const [todayAttendanceResult, monthAttendanceResult, salaryResult] = await Promise.all([
+      const [openAttendanceResult, todayAttendanceResult, monthAttendanceResult, salaryResult] = await Promise.all([
+        supabase
+          .from('attendance')
+          .select('in_time,out_time,break_start_at,check_in_at,check_out_at,status')
+          .eq('employee_id', employee.id)
+          .not('in_time', 'is', null)
+          .is('out_time', null)
+          .order('check_in_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
         supabase
           .from('attendance')
           .select('in_time,out_time,break_start_at,check_in_at,check_out_at,status')
@@ -81,7 +101,7 @@ export default function EmployeeDashboard() {
           .maybeSingle(),
         supabase
           .from('attendance')
-          .select('status')
+          .select('status,in_time,check_in_at')
           .eq('employee_id', employee.id)
           .gte('date', monthStart)
           .lte('date', monthEnd),
@@ -94,12 +114,12 @@ export default function EmployeeDashboard() {
           .maybeSingle(),
       ]);
 
-      const computed = derive(todayAttendanceResult.data);
+      const computed = derive(openAttendanceResult.data ?? todayAttendanceResult.data);
       setTodayStatus(computed.label);
       setNextAttendanceAction(computed.next);
 
       const monthRows = monthAttendanceResult.data ?? [];
-      const presentDays = monthRows.filter((row) => row.status === 'present').length;
+      const presentDays = monthRows.filter((row) => row.status === 'present' || Boolean(row.in_time || row.check_in_at)).length;
       setMonthPresentDays(presentDays);
 
       if (salaryResult.data) {
@@ -109,34 +129,54 @@ export default function EmployeeDashboard() {
         setSalaryAmount(null);
         setSalaryType(null);
       }
+
+      const { data: employeeTasks } = await workspaceDb
+        .from('work_tasks_v2')
+        .select('id,status')
+        .eq('assignee_id', user.id);
+
+      const taskRows = (employeeTasks ?? []) as Array<{ id: string; status: string }>;
+      setTasksTotal(taskRows.length);
+      setTasksPending(taskRows.filter((task) => task.status !== 'done' && task.status !== 'cancelled').length);
     };
 
     fetchTodayStatus();
   }, [user?.id]);
 
+  useEffect(() => {
+    let mounted = true;
+    if (!user?.id) return;
+    canAccessFlowMath(user.id)
+      .then((allowed) => mounted && setHasFlowMathAccess(allowed))
+      .catch(() => mounted && setHasFlowMathAccess(false));
+    return () => {
+      mounted = false;
+    };
+  }, [user?.id]);
+
   const attendanceIndicatorClass =
     todayStatus === 'Not Marked'
-      ? 'bg-red-500'
+      ? 'bg-destructive'
       : todayStatus === 'On Break'
-        ? 'bg-orange-500'
+        ? 'bg-warning'
         : todayStatus === 'Checked Out'
-          ? 'bg-blue-500'
-          : 'bg-success';
+          ? 'bg-info'
+          : 'bg-primary';
 
   const statusPillClass =
     todayStatus === 'Not Marked'
-      ? 'bg-red-500/10 text-red-600'
+      ? 'bg-destructive/10 text-destructive'
       : todayStatus === 'On Break'
-        ? 'bg-orange-500/10 text-orange-600'
+        ? 'bg-warning/10 text-warning'
         : todayStatus === 'Checked Out'
-          ? 'bg-blue-500/10 text-blue-600'
+          ? 'bg-info/10 text-info'
           : todayStatus === 'Leave'
-            ? 'bg-purple-500/10 text-purple-600'
+            ? 'bg-accent/30 text-accent-foreground'
             : todayStatus === 'Absent'
               ? 'bg-zinc-500/10 text-zinc-600'
               : todayStatus === 'Half Day'
-                ? 'bg-yellow-500/10 text-yellow-600'
-                : 'bg-success/10 text-success';
+                ? 'bg-warning/10 text-warning'
+                : 'bg-primary/10 text-primary';
 
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR' }).format(amount);
@@ -147,9 +187,8 @@ export default function EmployeeDashboard() {
       : salaryType === 'hourly'
         ? `${formatCurrency(salaryAmount)}/hr`
         : formatCurrency(salaryAmount);
-
-  const tasksTotal = mockTasks.length;
-  const tasksPending = mockTasks.filter((t) => t.status !== 'completed').length;
+  const hiddenSalaryLabel = salaryAmount === null ? '—' : '******';
+  const displayedSalaryLabel = isSalaryVisible ? salaryLabel : hiddenSalaryLabel;
 
   const quickActions = [
     {
@@ -163,37 +202,41 @@ export default function EmployeeDashboard() {
       title: 'Tasks',
       subtitle: `${tasksPending} pending`,
       icon: CheckSquare,
-      href: '/employee/tasks',
-      indicatorClass: 'bg-success',
-    },
-    {
-      title: 'Team',
-      subtitle: '12 online',
-      icon: Users,
-      href: '/employee/team',
-      indicatorClass: 'bg-success',
+      href: '/employee/work',
+      indicatorClass: 'bg-primary',
     },
     {
       title: 'Salary',
-      subtitle: 'January paid',
+      subtitle: displayedSalaryLabel,
       icon: Banknote,
       href: '/employee/salary',
-      indicatorClass: 'bg-success',
+      indicatorClass: 'bg-primary',
     },
     {
       title: 'Notifications',
-      subtitle: '5 unread',
+      subtitle: 'View updates',
       icon: Bell,
       href: '/employee/notifications',
-      indicatorClass: 'bg-success',
+      indicatorClass: 'bg-primary',
     },
     {
-      title: 'Chat',
-      subtitle: '2 active',
-      icon: MessageSquare,
-      href: '/employee/chat',
-      indicatorClass: 'bg-blue-500',
+      title: 'Workspace',
+      subtitle: 'Teams and chat',
+      icon: Briefcase,
+      href: '/employee/work',
+      indicatorClass: 'bg-info',
     },
+    ...(hasFlowMathAccess
+      ? [
+          {
+            title: 'FlowMath',
+            subtitle: 'Accounts ERP',
+            icon: Calculator,
+            href: '/flowmath/dashboard',
+            indicatorClass: 'bg-accent',
+          },
+        ]
+      : []),
   ] as const;
 
   return (
@@ -224,50 +267,60 @@ export default function EmployeeDashboard() {
           <Card className="card-elevated">
             <CardContent className="p-3 md:p-4">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="rounded-xl border border-border bg-muted/30 p-3">
+                <div className="surface-tile">
                   <div className="flex items-center justify-between gap-3">
                     <div className="space-y-0.5">
                       <p className="text-xs text-muted-foreground">Today</p>
                       <p className="text-base font-semibold">{todayStatus}</p>
                     </div>
-                    <div className="h-9 w-9 rounded-xl bg-muted flex items-center justify-center">
-                      <Clock className="h-4 w-4 text-foreground" />
+                    <div className="icon-tile">
+                      <Clock className="h-4 w-4" />
                     </div>
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-border bg-muted/30 p-3">
+                <div className="surface-tile">
                   <div className="flex items-center justify-between gap-3">
                     <div className="space-y-0.5">
                       <p className="text-xs text-muted-foreground">This Month</p>
                       <p className="text-base font-semibold">{monthPresentDays === null ? '—' : `${monthPresentDays} Days`}</p>
                     </div>
-                    <div className="h-9 w-9 rounded-xl bg-muted flex items-center justify-center">
-                      <Calendar className="h-4 w-4 text-foreground" />
+                    <div className="icon-tile">
+                      <Calendar className="h-4 w-4" />
                     </div>
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-border bg-muted/30 p-3">
+                <div className="surface-tile">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="space-y-0.5">
+                    <div className="min-w-0 space-y-0.5">
                       <p className="text-xs text-muted-foreground">Salary</p>
-                      <p className="text-base font-semibold">{salaryLabel}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="truncate text-base font-semibold">{displayedSalaryLabel}</p>
+                        <button
+                          type="button"
+                          onClick={() => setIsSalaryVisible((visible) => !visible)}
+                          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          aria-label={isSalaryVisible ? 'Hide salary' : 'Show salary'}
+                        >
+                          {isSalaryVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
                     </div>
-                    <div className="h-9 w-9 rounded-xl bg-muted flex items-center justify-center">
-                      <Banknote className="h-4 w-4 text-foreground" />
+                    <div className="icon-tile">
+                      <Banknote className="h-4 w-4" />
                     </div>
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-border bg-muted/30 p-3">
+                <div className="surface-tile">
                   <div className="flex items-center justify-between gap-3">
                     <div className="space-y-0.5">
                       <p className="text-xs text-muted-foreground">Tasks</p>
                       <p className="text-base font-semibold">{tasksTotal}</p>
                     </div>
-                    <div className="h-9 w-9 rounded-xl bg-muted flex items-center justify-center">
-                      <CheckSquare className="h-4 w-4 text-foreground" />
+                    <div className="icon-tile">
+                      <CheckSquare className="h-4 w-4" />
                     </div>
                   </div>
                 </div>
@@ -288,11 +341,11 @@ export default function EmployeeDashboard() {
                       key={action.href}
                       type="button"
                       onClick={() => navigate(action.href)}
-                      className="group flex flex-col items-start gap-2 rounded-xl border border-border bg-muted/30 p-3 text-left transition-colors hover:bg-muted/60"
+                      className="group flex flex-col items-start gap-2 rounded-lg border border-border bg-secondary/40 p-3 text-left transition-all hover:border-primary/40 hover:bg-primary/10"
                     >
                       <div className="flex w-full items-center justify-between gap-2">
-                        <div className="h-8 w-8 rounded-lg bg-muted flex items-center justify-center">
-                          <Icon className="h-4 w-4 text-foreground" />
+                        <div className="icon-tile h-8 w-8">
+                          <Icon className="h-4 w-4" />
                         </div>
                         <span className={`h-2 w-2 rounded-full ${action.indicatorClass}`} />
                       </div>
@@ -314,29 +367,29 @@ export default function EmployeeDashboard() {
           </CardHeader>
           <CardContent className="pt-0">
             <div className="space-y-1">
-              <div className="flex items-start gap-3 rounded-xl p-2.5 hover:bg-muted/40 transition-colors">
-                <div className="mt-1 h-2 w-2 bg-blue-500 rounded-full" />
+              <div className="flex items-start gap-3 rounded-lg p-2.5 hover:bg-primary/10 transition-colors">
+                <div className="mt-1 h-2 w-2 bg-info rounded-full" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate">Task assigned: "Design new landing page"</p>
                   <p className="text-xs text-muted-foreground">2 hours ago</p>
                 </div>
               </div>
-              <div className="flex items-start gap-3 rounded-xl p-2.5 hover:bg-muted/40 transition-colors">
-                <div className="mt-1 h-2 w-2 bg-success rounded-full" />
+              <div className="flex items-start gap-3 rounded-lg p-2.5 hover:bg-primary/10 transition-colors">
+                <div className="mt-1 h-2 w-2 bg-primary rounded-full" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate">Salary processed for January 2024</p>
                   <p className="text-xs text-muted-foreground">1 day ago</p>
                 </div>
               </div>
-              <div className="flex items-start gap-3 rounded-xl p-2.5 hover:bg-muted/40 transition-colors">
-                <div className="mt-1 h-2 w-2 bg-purple-500 rounded-full" />
+              <div className="flex items-start gap-3 rounded-lg p-2.5 hover:bg-primary/10 transition-colors">
+                <div className="mt-1 h-2 w-2 bg-accent rounded-full" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate">Team meeting scheduled for tomorrow</p>
                   <p className="text-xs text-muted-foreground">2 days ago</p>
                 </div>
               </div>
-              <div className="flex items-start gap-3 rounded-xl p-2.5 hover:bg-muted/40 transition-colors">
-                <div className="mt-1 h-2 w-2 bg-orange-500 rounded-full" />
+              <div className="flex items-start gap-3 rounded-lg p-2.5 hover:bg-primary/10 transition-colors">
+                <div className="mt-1 h-2 w-2 bg-warning rounded-full" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate">Leave request approved for Feb 5-7</p>
                   <p className="text-xs text-muted-foreground">3 days ago</p>

@@ -1,5 +1,6 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Search, Bell, MessageSquare, LogOut, Sparkles } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Search, Bell, LogOut, Calculator, WalletCards } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -14,6 +15,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { signOut } from '@/lib/auth';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
 
 const navItems = [
   { label: 'Overview', href: '/admin/dashboard' },
@@ -21,6 +23,7 @@ const navItems = [
   { label: 'Attendance', href: '/admin/attendance' },
   { label: 'Payroll Management', href: '/admin/salaries' },
   { label: 'Work Management', href: '/admin/work' },
+  { label: 'Logs', href: '/admin/logs' },
 ];
 
 export function TopNav() {
@@ -28,6 +31,35 @@ export function TopNav() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const firstName = user?.fullName?.split(' ')[0] || 'User';
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const refreshUnreadCount = async () => {
+      const { count } = await supabase
+        .from('work_notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('is_read', false);
+      setUnreadNotifications(count ?? 0);
+    };
+
+    refreshUnreadCount();
+
+    const realtime = supabase
+      .channel(`admin_work_notifications_badge:${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'work_notifications', filter: `user_id=eq.${user.id}` },
+        () => refreshUnreadCount(),
+      )
+      .subscribe();
+
+    return () => {
+      realtime.unsubscribe();
+    };
+  }, [user?.id]);
 
   const handleLogout = async () => {
     await signOut();
@@ -35,16 +67,16 @@ export function TopNav() {
   };
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
-      <div className="flex h-14 items-center justify-between px-4 md:px-6">
+    <header className="sticky top-0 z-50 w-full border-b border-border bg-card/90 backdrop-blur-xl supports-[backdrop-filter]:bg-card/80">
+      <div className="flex h-16 items-center justify-between px-4 md:px-6">
         {/* Left: Logo + Nav */}
         <div className="flex items-center gap-6">
           {/* Logo */}
-          <Link to="/admin/dashboard" className="flex items-center gap-2">
+          <Link to="/admin/dashboard" className="relative flex h-9 w-[132px] items-center overflow-hidden" aria-label="FLOW HR dashboard">
             <img 
               src="/logo.png" 
               alt="FLOW by Straton Ally" 
-              className="w-32 h-32 rounded-lg object-contain mt-2"
+              className="absolute left-[-7px] top-[-54px] h-[150px] w-[150px] max-w-none object-contain"
             />
           </Link>
 
@@ -58,10 +90,10 @@ export function TopNav() {
                   key={item.href}
                   to={item.href}
                   className={cn(
-                    'px-3 py-1.5 rounded-full text-sm font-medium transition-colors',
+                    'nav-tab',
                     isActive
-                      ? 'bg-success text-success-foreground'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                      ? 'nav-tab-active'
+                      : 'text-muted-foreground hover:text-primary hover:bg-primary/10'
                   )}
                 >
                   {item.label}
@@ -82,13 +114,27 @@ export function TopNav() {
             />
           </div>
 
-          <Button variant="ghost" size="icon" className="h-8 w-8">
-            <MessageSquare className="h-4 w-4" />
+          <Button variant="outline" size="sm" className="hidden h-8 lg:inline-flex" onClick={() => navigate('/flowmath/dashboard')}>
+            <Calculator className="h-4 w-4" />
+            FlowMath
           </Button>
 
-          <Button variant="ghost" size="icon" className="h-8 w-8 relative">
+          <Button variant="outline" size="sm" className="hidden h-8 lg:inline-flex" onClick={() => navigate('/flowpay/dashboard')}>
+            <img src="/flowpay.png" alt="FlowPay" className="h-4 w-4" />
+            FlowPay
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 relative"
+            onClick={() => navigate('/admin/notifications')}
+            title="Notifications"
+          >
             <Bell className="h-4 w-4" />
-            <span className="absolute top-1 right-1 w-2 h-2 bg-success rounded-full" />
+            {unreadNotifications > 0 ? (
+              <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full" />
+            ) : null}
           </Button>
 
           <ThemeToggle />
@@ -98,7 +144,7 @@ export function TopNav() {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="h-8 w-8 rounded-full p-0">
                 <Avatar className="h-8 w-8">
-                  <AvatarFallback className="bg-success text-success-foreground text-xs font-medium">
+                  <AvatarFallback className="bg-primary text-primary-foreground text-xs font-medium">
                     {firstName.charAt(0)}
                   </AvatarFallback>
                 </Avatar>

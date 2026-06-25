@@ -14,6 +14,20 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const adminEmail = Deno.env.get("SEED_ADMIN_EMAIL");
+    const adminPassword = Deno.env.get("SEED_ADMIN_PASSWORD");
+    const adminFullName = Deno.env.get("SEED_ADMIN_FULL_NAME") ?? "System Admin";
+    const adminEmployeeId = Deno.env.get("SEED_ADMIN_EMPLOYEE_ID") ?? "ADMIN001";
+
+    if (!adminEmail || !adminPassword) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Set SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD before running seed-admin",
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // Create admin client with service role
     const supabase = createClient(supabaseUrl, serviceRoleKey, {
@@ -26,7 +40,7 @@ serve(async (req) => {
     // Check if admin user already exists
     const { data: existingUsers } = await supabase.auth.admin.listUsers();
     const adminExists = existingUsers?.users?.some(
-      (u) => u.email === "admin@stratonally.com"
+      (u) => u.email === adminEmail
     );
 
     if (adminExists) {
@@ -38,11 +52,11 @@ serve(async (req) => {
 
     // Create admin user
     const { data: newUser, error: createError } = await supabase.auth.admin.createUser({
-      email: "admin@stratonally.com",
-      password: "admin",
+      email: adminEmail,
+      password: adminPassword,
       email_confirm: true,
       user_metadata: {
-        full_name: "System Admin",
+        full_name: adminFullName,
       },
     });
 
@@ -68,7 +82,7 @@ serve(async (req) => {
       .from("employees")
       .insert({
         user_id: newUser.user.id,
-        employee_id: "ADMIN001",
+        employee_id: adminEmployeeId,
         designation: "System Administrator",
         joining_date: new Date().toISOString().split("T")[0],
       });
@@ -82,7 +96,7 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         message: "Admin user created successfully",
-        email: "admin@stratonally.com",
+        email: adminEmail,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

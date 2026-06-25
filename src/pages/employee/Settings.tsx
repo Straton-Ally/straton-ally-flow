@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -7,10 +7,20 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { ImageUp, RotateCcw, ZoomIn } from 'lucide-react';
 
 const profileSchema = z.object({
   phone: z.string().optional(),
@@ -32,6 +42,14 @@ const passwordSchema = z
 
 type PasswordFormData = z.infer<typeof passwordSchema>;
 
+type CropOffset = {
+  x: number;
+  y: number;
+};
+
+const AVATAR_CROP_SIZE = 320;
+const AVATAR_OUTPUT_SIZE = 512;
+
 export default function EmployeeSettings() {
   const { toast } = useToast();
   const { user, refetch } = useAuth();
@@ -41,7 +59,16 @@ export default function EmployeeSettings() {
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [employeeId, setEmployeeId] = useState<string | null>(null);
+  const [selectedAvatarFile, setSelectedAvatarFile] = useState<File | null>(null);
+  const [cropImageUrl, setCropImageUrl] = useState<string | null>(null);
+  const [isCropDialogOpen, setIsCropDialogOpen] = useState(false);
+  const [cropZoom, setCropZoom] = useState(1);
+  const [cropOffset, setCropOffset] = useState<CropOffset>({ x: 0, y: 0 });
+  const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cropCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const cropImageRef = useRef<HTMLImageElement | null>(null);
+  const dragStartRef = useRef<{ pointerId: number; x: number; y: number; offset: CropOffset } | null>(null);
 
   const profileForm = useForm<ProfileFormData>({
     resolver: zodResolver(profileSchema),
@@ -104,6 +131,68 @@ export default function EmployeeSettings() {
 
     load();
   }, [profileForm, toast]);
+
+  const clampCropOffset = useCallback((offset: CropOffset, zoom = cropZoom) => {
+    if (!imageSize.width || !imageSize.height) return offset;
+
+    const scale = Math.max(AVATAR_CROP_SIZE / imageSize.width, AVATAR_CROP_SIZE / imageSize.height) * zoom;
+    const drawnWidth = imageSize.width * scale;
+    const drawnHeight = imageSize.height * scale;
+    const maxX = Math.max(0, (drawnWidth - AVATAR_CROP_SIZE) / 2);
+    const maxY = Math.max(0, (drawnHeight - AVATAR_CROP_SIZE) / 2);
+
+    return {
+      x: Math.min(maxX, Math.max(-maxX, offset.x)),
+      y: Math.min(maxY, Math.max(-maxY, offset.y)),
+    };
+  }, [cropZoom, imageSize.height, imageSize.width]);
+
+  const drawImageToCanvas = useCallback((canvas: HTMLCanvasElement, size: number) => {
+    const image = cropImageRef.current;
+    if (!image || !imageSize.width || !imageSize.height) return false;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return false;
+
+    const outputScale = size / AVATAR_CROP_SIZE;
+    const baseScale = Math.max(AVATAR_CROP_SIZE / imageSize.width, AVATAR_CROP_SIZE / imageSize.height);
+    const scale = baseScale * cropZoom;
+    const drawnWidth = imageSize.width * scale;
+    const drawnHeight = imageSize.height * scale;
+    const dx = (AVATAR_CROP_SIZE - drawnWidth) / 2 + cropOffset.x;
+    const dy = (AVATAR_CROP_SIZE - drawnHeight) / 2 + cropOffset.y;
+
+    canvas.width = size;
+    canvas.height = size;
+    ctx.clearRect(0, 0, size, size);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, size, size);
+    ctx.drawImage(image, dx * outputScale, dy * outputScale, drawnWidth * outputScale, drawnHeight * outputScale);
+
+    return true;
+  }, [cropOffset.x, cropOffset.y, cropZoom, imageSize.height, imageSize.width]);
+
+  const drawCropPreview = useCallback(() => {
+    const canvas = cropCanvasRef.current;
+    if (!canvas) return;
+
+    drawImageToCanvas(canvas, AVATAR_CROP_SIZE);
+  }, [drawImageToCanvas]);
+
+  useEffect(() => {
+    if (!cropImageUrl) return undefined;
+
+    return () => URL.revokeObjectURL(cropImageUrl);
+  }, [cropImageUrl]);
+
+  useEffect(() => {
+    drawCropPreview();
+  }, [drawCropPreview]);
+
+  const resetCrop = () => {
+    setCropZoom(1);
+    setCropOffset({ x: 0, y: 0 });
+  };
 
   const saveProfile = async (data: ProfileFormData) => {
     if (!employeeId) {
@@ -172,6 +261,62 @@ export default function EmployeeSettings() {
     }
   };
 
+  const openCropDialog = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: 'Invalid file',
+        description: 'Please select an image file.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSelectedAvatarFile(file);
+    setCropImageUrl(URL.createObjectURL(file));
+    setCropZoom(1);
+    setCropOffset({ x: 0, y: 0 });
+    setImageSize({ width: 0, height: 0 });
+    setIsCropDialogOpen(true);
+  };
+
+  const closeCropDialog = () => {
+    setIsCropDialogOpen(false);
+    setSelectedAvatarFile(null);
+    setCropImageUrl(null);
+    setImageSize({ width: 0, height: 0 });
+    dragStartRef.current = null;
+  };
+
+  const createCroppedAvatarFile = async () => {
+    const canvas = document.createElement('canvas');
+    const didDraw = drawImageToCanvas(canvas, AVATAR_OUTPUT_SIZE);
+    if (!didDraw) throw new Error('Unable to prepare cropped photo');
+
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((nextBlob) => {
+        if (nextBlob) resolve(nextBlob);
+        else reject(new Error('Unable to prepare cropped photo'));
+      }, 'image/jpeg', 0.92);
+    });
+
+    const baseName = selectedAvatarFile?.name.replace(/\.[^/.]+$/, '') || 'profile-photo';
+    return new File([blob], `${baseName}-cropped.jpg`, { type: 'image/jpeg' });
+  };
+
+  const confirmAvatarCrop = async () => {
+    try {
+      const croppedFile = await createCroppedAvatarFile();
+      closeCropDialog();
+      await uploadAvatar(croppedFile);
+    } catch (error: unknown) {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to crop photo',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const uploadAvatar = async (file: File) => {
     setIsUploadingAvatar(true);
     try {
@@ -182,8 +327,7 @@ export default function EmployeeSettings() {
       if (authError) throw authError;
       if (!authUser) throw new Error('Not signed in');
 
-      const fileExt = file.name.split('.').pop() || 'jpg';
-      const fileName = `${Date.now()}.${fileExt}`;
+      const fileName = `${Date.now()}.jpg`;
       const objectPath = `${authUser.id}/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
@@ -253,7 +397,7 @@ export default function EmployeeSettings() {
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];
-                if (file) void uploadAvatar(file);
+                if (file) openCropDialog(file);
                 if (fileInputRef.current) fileInputRef.current.value = '';
               }}
             />
@@ -263,11 +407,117 @@ export default function EmployeeSettings() {
               disabled={isUploadingAvatar}
               onClick={() => fileInputRef.current?.click()}
             >
+              <ImageUp className="mr-2 h-4 w-4" />
               {isUploadingAvatar ? 'Uploading...' : 'Upload'}
             </Button>
           </div>
         </CardContent>
       </Card>
+
+      <Dialog
+        open={isCropDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) closeCropDialog();
+        }}
+      >
+        <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Crop Profile Photo</DialogTitle>
+            <DialogDescription>Drag the photo and adjust zoom to frame your avatar.</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5">
+            <div className="mx-auto flex w-full justify-center">
+              <div className="relative h-80 w-80 max-w-full overflow-hidden rounded-md bg-muted">
+                <canvas
+                  ref={cropCanvasRef}
+                  className="h-full w-full cursor-grab touch-none select-none active:cursor-grabbing"
+                  width={AVATAR_CROP_SIZE}
+                  height={AVATAR_CROP_SIZE}
+                  onPointerDown={(event) => {
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    dragStartRef.current = {
+                      pointerId: event.pointerId,
+                      x: event.clientX,
+                      y: event.clientY,
+                      offset: cropOffset,
+                    };
+                  }}
+                  onPointerMove={(event) => {
+                    const dragStart = dragStartRef.current;
+                    if (!dragStart || dragStart.pointerId !== event.pointerId) return;
+
+                    setCropOffset(
+                      clampCropOffset({
+                        x: dragStart.offset.x + event.clientX - dragStart.x,
+                        y: dragStart.offset.y + event.clientY - dragStart.y,
+                      }),
+                    );
+                  }}
+                  onPointerUp={(event) => {
+                    event.currentTarget.releasePointerCapture(event.pointerId);
+                    dragStartRef.current = null;
+                  }}
+                  onPointerCancel={() => {
+                    dragStartRef.current = null;
+                  }}
+                />
+                <div className="pointer-events-none absolute inset-8 rounded-full border-2 border-white shadow-[0_0_0_999px_rgba(0,0,0,0.38)]" />
+                <div className="pointer-events-none absolute inset-8 rounded-full ring-1 ring-black/20" />
+              </div>
+            </div>
+
+            {cropImageUrl && (
+              <img
+                ref={cropImageRef}
+                src={cropImageUrl}
+                alt=""
+                className="hidden"
+                onLoad={(event) => {
+                  setImageSize({
+                    width: event.currentTarget.naturalWidth,
+                    height: event.currentTarget.naturalHeight,
+                  });
+                }}
+              />
+            )}
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <Label htmlFor="avatar-zoom" className="flex items-center gap-2">
+                  <ZoomIn className="h-4 w-4" />
+                  Zoom
+                </Label>
+                <Button type="button" variant="ghost" size="sm" onClick={resetCrop}>
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  Reset
+                </Button>
+              </div>
+              <Slider
+                id="avatar-zoom"
+                min={1}
+                max={3}
+                step={0.05}
+                value={[cropZoom]}
+                onValueChange={([value]) => {
+                  const nextZoom = value || 1;
+                  setCropZoom(nextZoom);
+                  setCropOffset((current) => clampCropOffset(current, nextZoom));
+                }}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={closeCropDialog}>
+              Cancel
+            </Button>
+            <Button type="button" disabled={!imageSize.width || isUploadingAvatar} onClick={confirmAvatarCrop}>
+              {isUploadingAvatar ? 'Uploading...' : 'Save Photo'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Card className="card-elevated">
         <CardHeader>
