@@ -69,7 +69,8 @@ export default function Salaries() {
           salary_type,
           amount,
           effective_date,
-          is_current
+          is_current,
+          emp:employees!salaries_employee_id_fkey ( id, employee_id, user_id, designation )
         `)
         .eq('is_current', true)
         .order('amount', { ascending: false });
@@ -77,35 +78,21 @@ export default function Salaries() {
       if (error) throw error;
 
       if (data) {
-        const withEmployeeInfo = await Promise.all(
-          data.map(async (salary) => {
-            const { data: emp } = await supabase
-              .from('employees')
-              .select('id, employee_id, user_id, designation')
-              .eq('id', salary.employee_id)
-              .single();
-
-            let fullName = 'Unknown';
-            if (emp) {
-              const { data: profile } = await supabase
-                .from('profiles')
-                .select('full_name')
-                .eq('id', emp.user_id)
-                .single();
-              fullName = profile?.full_name || 'Unknown';
-            }
-
-            return {
-              ...salary,
-              employee: {
-                id: emp?.id || '',
-                employee_id: emp?.employee_id || '',
-                full_name: fullName,
-                designation: emp?.designation || null,
-              },
-            };
-          })
-        );
+        const userIds = [...new Set(data.map((s) => s.emp?.user_id).filter((id): id is string => Boolean(id)))];
+        const names = new Map<string, string>();
+        if (userIds.length > 0) {
+          const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', userIds);
+          for (const p of profiles ?? []) names.set(p.id, p.full_name ?? 'Unknown');
+        }
+        const withEmployeeInfo = data.map(({ emp, ...salary }) => ({
+          ...salary,
+          employee: {
+            id: emp?.id || '',
+            employee_id: emp?.employee_id || '',
+            full_name: (emp?.user_id && names.get(emp.user_id)) || 'Unknown',
+            designation: emp?.designation || null,
+          },
+        }));
         setSalaries(withEmployeeInfo);
       }
     } catch (error) {

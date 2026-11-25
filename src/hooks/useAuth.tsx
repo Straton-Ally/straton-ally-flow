@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { AuthUser, getCurrentUser, getRedirectPath } from '@/lib/auth';
 import type { Session } from '@supabase/supabase-js';
@@ -25,7 +26,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [skipRedirect, setSkipRedirect] = useState(false);
   const navigate = useNavigate();
-  const location = useLocation();
+  const queryClient = useQueryClient();
 
   const fetchUser = async () => {
     const authUser = await getCurrentUser();
@@ -146,8 +147,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .channel(`work_notifications_popup:${userId}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'work_notifications', filter: `user_id=eq.${userId}` },
+        { event: '*', schema: 'public', table: 'work_notifications', filter: `user_id=eq.${userId}` },
         (payload) => {
+          // Keep the unread badge in the shell current (insert, read, delete).
+          void queryClient.invalidateQueries({ queryKey: ['notifications', 'unread', userId] });
+          if (payload.eventType !== 'INSERT') return;
           if (typeof window === 'undefined') return;
 
           const isFocused =
@@ -231,7 +235,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       channel.unsubscribe();
     };
-  }, [session?.user?.id, user?.role, user?.isTeamLead]);
+  }, [session?.user?.id, user?.role, user?.isTeamLead, queryClient]);
 
   const refetch = async () => {
     await fetchUser();
