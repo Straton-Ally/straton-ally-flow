@@ -35,25 +35,16 @@ export default function Departments() {
     try {
       const { data, error } = await supabase
         .from('departments')
-        .select('id, name, description')
+        .select('id, name, description, employees(count)')
         .order('name');
 
       if (error) throw error;
 
       if (data) {
-        const withCounts = await Promise.all(
-          data.map(async (dept) => {
-            const { count } = await supabase
-              .from('employees')
-              .select('*', { count: 'exact', head: true })
-              .eq('department_id', dept.id);
-
-            return {
-              ...dept,
-              employee_count: count || 0,
-            };
-          })
-        );
+        const withCounts = data.map(({ employees, ...dept }) => ({
+          ...dept,
+          employee_count: (employees as unknown as { count: number }[] | null)?.[0]?.count ?? 0,
+        }));
         setDepartments(withCounts);
       }
     } catch (error) {

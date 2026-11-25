@@ -40,6 +40,24 @@ import { MonthlyAttendanceChart } from '@/components/admin/MonthlyAttendanceChar
 const ATTENDANCE_GRACE_MINUTES = 15;
 const EXPORT_PAGE_SIZE = 1000;
 
+/** Employee number, office and name for a set of employee ids, in two queries. */
+async function lookupEmployees(employeeIds: string[]) {
+  const ids = [...new Set(employeeIds)];
+  const result = new Map<string, { employee_id: string; office_id: string | null; full_name: string }>();
+  if (ids.length === 0) return result;
+  const { data: emps } = await supabase.from('employees').select('id, employee_id, user_id, office_id').in('id', ids);
+  const userIds = [...new Set((emps ?? []).map((e) => e.user_id).filter(Boolean))];
+  const names = new Map<string, string>();
+  if (userIds.length > 0) {
+    const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', userIds);
+    profiles?.forEach((p) => names.set(p.id, p.full_name ?? 'Unknown'));
+  }
+  for (const e of emps ?? []) {
+    result.set(e.id, { employee_id: e.employee_id, office_id: e.office_id, full_name: names.get(e.user_id) ?? 'Unknown' });
+  }
+  return result;
+}
+
 interface AttendanceRecord {
   id: string;
   date: string;
@@ -349,21 +367,19 @@ export default function Attendance() {
         officeRows?.forEach((office) => officesById.set(office.id, office.name));
       }
 
-      const withNames = await Promise.all(
-        employeesData.map(async (emp) => {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('full_name')
-            .eq('id', emp.user_id)
-            .single();
-          return {
-            ...emp,
-            full_name: profile?.full_name || 'Unknown',
-            office_name: emp.office_id ? officesById.get(emp.office_id) ?? null : null,
-          };
-        })
+      const names = new Map<string, string>();
+      const userIds = [...new Set(employeesData.map((emp) => emp.user_id).filter(Boolean))];
+      if (userIds.length > 0) {
+        const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', userIds);
+        profiles?.forEach((p) => names.set(p.id, p.full_name ?? 'Unknown'));
+      }
+      setEmployees(
+        employeesData.map((emp) => ({
+          ...emp,
+          full_name: names.get(emp.user_id) || 'Unknown',
+          office_name: emp.office_id ? officesById.get(emp.office_id) ?? null : null,
+        })),
       );
-      setEmployees(withNames);
     }
   };
 
@@ -409,7 +425,12 @@ export default function Attendance() {
           check_in_uk_time,
           check_out_uk_time,
           total_work_minutes,
-          employee_id
+          employee_id,
+          emp:employees!attendance_employee_id_fkey (
+            id, employee_id, user_id, office_id, custom_work_start_time, custom_work_end_time,
+            office:offices ( name ),
+            template:duty_schedule_templates ( start_time, end_time, work_days )
+          )
         `)
         .eq('date', selectedDate)
         .order('created_at', { ascending: false });
@@ -420,66 +441,46 @@ export default function Attendance() {
         const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
         const selectedDayName = dayNames[new Date(selectedDate + 'T12:00:00').getDay()];
 
-        const withEmployeeInfo = await Promise.all(
-          data.map(async (record) => {
-            const { data: emp } = await supabase
-              .from('employees')
-              .select('id, employee_id, user_id, office_id, duty_schedule_template_id, custom_work_start_time, custom_work_end_time')
-              .eq('id', record.employee_id)
-              .single();
+        // One extra query for names (employees.user_id has no FK to profiles, so it can't be embedded).
+        const userIds = [...new Set(data.map((r) => r.emp?.user_id).filter((id): id is string => Boolean(id)))];
+        const names = new Map<string, string>();
+        if (userIds.length > 0) {
+          const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', userIds);
+          for (const p of profiles ?? []) names.set(p.id, p.full_name ?? 'Unknown');
+        }
 
-            if (user?.isTeamLead && (!user.officeId || emp?.office_id !== user.officeId)) {
-              return null;
+        const withEmployeeInfo = data.map((row) => {
+          const { emp, ...record } = row;
+          if (user?.isTeamLead && (!user.officeId || emp?.office_id !== user.officeId)) {
+            return null;
+          }
+
+          let scheduleStart: string | null = null;
+          let scheduleEnd: string | null = null;
+          if (emp?.custom_work_start_time) scheduleStart = String(emp.custom_work_start_time).slice(0, 8);
+          if (emp?.custom_work_end_time) scheduleEnd = String(emp.custom_work_end_time).slice(0, 8);
+          const template = emp?.template;
+          if ((!scheduleStart || !scheduleEnd) && template) {
+            const workDays = (template.work_days as string[] | null) ?? [];
+            if (workDays.map((d) => d?.toLowerCase()).includes(selectedDayName)) {
+              if (!scheduleStart && template.start_time) scheduleStart = String(template.start_time).slice(0, 8);
+              if (!scheduleEnd && template.end_time) scheduleEnd = String(template.end_time).slice(0, 8);
             }
+          }
 
-            let fullName = 'Unknown';
-            let officeName: string | null = null;
-            let scheduleStart: string | null = null;
-            let scheduleEnd: string | null = null;
-
-            if (emp) {
-              const { data: profile } = await supabase
-                .from('profiles')
-                .select('full_name')
-                .eq('id', emp.user_id)
-                .single();
-              fullName = profile?.full_name || 'Unknown';
-
-              if (emp.office_id) {
-                const { data: office } = await supabase.from('offices').select('name').eq('id', emp.office_id).single();
-                officeName = office?.name ?? null;
-              }
-
-              if (emp.custom_work_start_time) scheduleStart = String(emp.custom_work_start_time).slice(0, 8);
-              if (emp.custom_work_end_time) scheduleEnd = String(emp.custom_work_end_time).slice(0, 8);
-              if ((!scheduleStart || !scheduleEnd) && emp.duty_schedule_template_id) {
-                const { data: template } = await supabase
-                  .from('duty_schedule_templates')
-                  .select('start_time, end_time, work_days')
-                  .eq('id', emp.duty_schedule_template_id)
-                  .single();
-                const workDays = (template?.work_days as string[] | null) ?? [];
-                if (template && workDays.map((d) => d?.toLowerCase()).includes(selectedDayName)) {
-                  if (!scheduleStart && template.start_time) scheduleStart = String(template.start_time).slice(0, 8);
-                  if (!scheduleEnd && template.end_time) scheduleEnd = String(template.end_time).slice(0, 8);
-                }
-              }
-            }
-
-            return {
-              ...record,
-              employee: {
-                id: emp?.id || '',
-                employee_id: emp?.employee_id || '',
-                full_name: fullName,
-                office_id: emp?.office_id ?? null,
-                office_name: officeName,
-              },
-              scheduleStart: scheduleStart ?? null,
-              scheduleEnd: scheduleEnd ?? null,
-            };
-          })
-        );
+          return {
+            ...record,
+            employee: {
+              id: emp?.id || '',
+              employee_id: emp?.employee_id || '',
+              full_name: (emp?.user_id && names.get(emp.user_id)) || 'Unknown',
+              office_id: emp?.office_id ?? null,
+              office_name: emp?.office?.name ?? null,
+            },
+            scheduleStart,
+            scheduleEnd,
+          };
+        });
         setAttendance(withEmployeeInfo.filter((record): record is AttendanceRecord => Boolean(record)));
       }
     } catch (error) {
@@ -647,23 +648,13 @@ export default function Attendance() {
       if (error) throw error;
 
       if (data?.length) {
-        const withNames = await Promise.all(
-          (data as EarlyCheckoutRequestRow[]).map(async (row) => {
-            const { data: emp } = await supabase
-              .from('employees')
-              .select('id, employee_id, user_id, office_id')
-              .eq('id', row.employee_id)
-              .single();
-            if (user?.isTeamLead && (!user.officeId || emp?.office_id !== user.officeId)) return null;
-            if (!emp) return { ...row, employee: { employee_id: '', full_name: 'Unknown' } };
-            const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', emp.user_id).single();
-            return {
-              ...row,
-              employee: { employee_id: emp.employee_id, full_name: profile?.full_name ?? 'Unknown' },
-            };
-          }),
-        );
-        setEarlyRequests(withNames.filter((row): row is EarlyCheckoutRequestRow => Boolean(row)));
+        const people = await lookupEmployees((data as EarlyCheckoutRequestRow[]).map((row) => row.employee_id));
+        const withNames = (data as EarlyCheckoutRequestRow[]).flatMap((row) => {
+          const emp = people.get(row.employee_id);
+          if (user?.isTeamLead && (!user.officeId || emp?.office_id !== user.officeId)) return [];
+          return [{ ...row, employee: { employee_id: emp?.employee_id ?? '', full_name: emp?.full_name ?? 'Unknown' } }];
+        });
+        setEarlyRequests(withNames);
       } else {
         setEarlyRequests([]);
       }
@@ -684,23 +675,13 @@ export default function Attendance() {
       if (error) throw error;
 
       if (data?.length) {
-        const withNames = await Promise.all(
-          (data as OvertimeRequestRow[]).map(async (row) => {
-            const { data: emp } = await supabase
-              .from('employees')
-              .select('id, employee_id, user_id, office_id')
-              .eq('id', row.employee_id)
-              .single();
-            if (user?.isTeamLead && (!user.officeId || emp?.office_id !== user.officeId)) return null;
-            if (!emp) return { ...row, employee: { employee_id: '', full_name: 'Unknown' } };
-            const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', emp.user_id).single();
-            return {
-              ...row,
-              employee: { employee_id: emp.employee_id, full_name: profile?.full_name ?? 'Unknown' },
-            };
-          }),
-        );
-        setOvertimeRequests(withNames.filter((row): row is OvertimeRequestRow => Boolean(row)));
+        const people = await lookupEmployees((data as OvertimeRequestRow[]).map((row) => row.employee_id));
+        const withNames = (data as OvertimeRequestRow[]).flatMap((row) => {
+          const emp = people.get(row.employee_id);
+          if (user?.isTeamLead && (!user.officeId || emp?.office_id !== user.officeId)) return [];
+          return [{ ...row, employee: { employee_id: emp?.employee_id ?? '', full_name: emp?.full_name ?? 'Unknown' } }];
+        });
+        setOvertimeRequests(withNames);
       } else {
         setOvertimeRequests([]);
       }

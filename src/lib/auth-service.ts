@@ -1,54 +1,36 @@
 import { supabase } from '@/integrations/supabase/client';
 
+/**
+ * Creates a login for a new employee through the admin-only
+ * `admin-create-user` edge function. The admin's own session is untouched.
+ */
 export async function createUserAsAdmin(userData: {
   email: string;
   password: string;
   fullName: string;
   role: 'admin' | 'employee';
-}) {
-  // Store current admin session
-  const { data: { session } } = await supabase.auth.getSession();
-  const adminUserId = session?.user?.id;
-
-  if (!adminUserId) {
-    throw new Error('No admin session found');
-  }
-
-  try {
-    // Create the user
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: userData.email,
-      password: userData.password,
-      options: {
-        data: {
-          full_name: userData.fullName,
-          created_by_admin: true, // Flag to identify admin-created users
-        },
+}): Promise<{ id: string; email?: string }> {
+  const { data, error } = await supabase.functions.invoke<{ user?: { id: string; email?: string }; error?: string }>(
+    'admin-create-user',
+    {
+      body: {
+        email: userData.email,
+        password: userData.password,
+        fullName: userData.fullName,
       },
-    });
+    },
+  );
 
-    if (authError) throw authError;
-    if (!authData.user) throw new Error('Failed to create user');
-
-    const newUserId = authData.user.id;
-
-    // Immediately sign back in as admin if we got switched
-    if (session) {
-      await supabase.auth.setSession({
-        access_token: session.access_token,
-        refresh_token: session.refresh_token!,
-      });
-    }
-
-    return authData.user;
-  } catch (error) {
-    // Try to restore admin session on error
-    if (session) {
-      await supabase.auth.setSession({
-        access_token: session.access_token,
-        refresh_token: session.refresh_token!,
-      });
+  if (error) {
+    // FunctionsHttpError carries the JSON body with our error message
+    const context = (error as { context?: Response }).context;
+    if (context && typeof context.json === 'function') {
+      const body = await context.json().catch(() => null);
+      if (body?.error) throw new Error(body.error);
     }
     throw error;
   }
+  if (!data?.user) throw new Error(data?.error ?? 'Failed to create user');
+
+  return data.user;
 }
