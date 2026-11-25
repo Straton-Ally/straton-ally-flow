@@ -46,3 +46,6 @@ graphify-out/
 *.njsproj
 *.sln
 *.sw?
+
+# Local database backups (contain personal data)
+.backups/

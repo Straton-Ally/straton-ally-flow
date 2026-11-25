@@ -16,7 +16,7 @@ export default {
     extend: {
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
-        display: ['Plus Jakarta Sans', 'Inter', 'system-ui', 'sans-serif'],
+        display: ['Inter', 'system-ui', 'sans-serif'],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -63,6 +63,11 @@ export default {
         card: {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
+        },
+        rail: {
+          DEFAULT: "hsl(var(--rail-background))",
+          foreground: "hsl(var(--rail-foreground))",
+          active: "hsl(var(--rail-active))",
         },
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",

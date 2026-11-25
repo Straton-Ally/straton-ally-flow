@@ -1,16 +1,38 @@
 import { supabase } from "@/utils/supabase";
 import type { User } from "@supabase/supabase-js";
 
+/** Legacy primary role used by existing admin/employee pages. */
 export type AppRole = 'admin' | 'employee';
+
+/** Access level used for RBAC: admin > manager > member. */
+export type AccessRole = 'admin' | 'manager' | 'member';
 
 export interface AuthUser {
   id: string;
   email: string;
   fullName: string;
   role: AppRole | null;
+  /** Admin, Manager or Member. Managers are covered by reporting lines and office-lead flags. */
+  accessRole: AccessRole;
+  /** True for managers. Kept for existing pages that still read it. */
   isTeamLead: boolean;
   officeId: string | null;
+  employeeId: string | null;
   avatarUrl: string | null;
+  canAccessFlowMath: boolean;
+  canAccessFlowPay: boolean;
+}
+
+interface GetMeResponse {
+  user_id: string;
+  email: string;
+  full_name: string | null;
+  avatar_url: string | null;
+  status: string | null;
+  role: AccessRole;
+  employee: { id: string; office_id: string | null } | null;
+  can_access_flowmath: boolean;
+  can_access_flowpay: boolean;
 }
 
 const ALLOWED_DOMAIN = "@stratonally.com";
@@ -70,36 +92,26 @@ export async function signOut(): Promise<void> {
   await supabase.auth.signOut();
 }
 
+/** One round trip: profile, access role, employee record and module access. */
 export async function getCurrentUser(): Promise<AuthUser | null> {
-  const { data: { user } } = await supabase.auth.getUser();
-  
-  if (!user) return null;
+  const { data, error } = await supabase.rpc('get_me');
+  if (error || !data) return null;
 
-  // Get profile
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('full_name, avatar_url')
-    .eq('id', user.id)
-    .maybeSingle();
-
-  // Get role using RPC function
-  const { data: role } = await supabase
-    .rpc('get_user_role', { _user_id: user.id });
-
-  const { data: employee } = await supabase
-    .from('employees')
-    .select('is_team_lead, office_id')
-    .eq('user_id', user.id)
-    .maybeSingle();
+  const me = data as unknown as GetMeResponse;
+  const accessRole: AccessRole = me.role ?? 'member';
 
   return {
-    id: user.id,
-    email: user.email || '',
-    fullName: profile?.full_name || 'User',
-    role: role as AppRole | null,
-    isTeamLead: Boolean(employee?.is_team_lead),
-    officeId: employee?.office_id ?? null,
-    avatarUrl: profile?.avatar_url || null,
+    id: me.user_id,
+    email: me.email || '',
+    fullName: me.full_name || 'User',
+    role: accessRole === 'admin' ? 'admin' : 'employee',
+    accessRole,
+    isTeamLead: accessRole === 'manager',
+    officeId: me.employee?.office_id ?? null,
+    employeeId: me.employee?.id ?? null,
+    avatarUrl: me.avatar_url || null,
+    canAccessFlowMath: Boolean(me.can_access_flowmath),
+    canAccessFlowPay: Boolean(me.can_access_flowpay),
   };
 }
 
@@ -112,11 +124,6 @@ export async function getUserRole(userId: string): Promise<AppRole | null> {
 
 export function getRedirectPath(role: AppRole | null, isTeamLead = false): string {
   if (role === 'admin' || isTeamLead) return '/admin/dashboard';
-
-  switch (role) {
-    case 'employee':
-      return '/employee/dashboard';
-    default:
-      return '/login';
-  }
+  if (role === 'employee') return '/employee/dashboard';
+  return '/login';
 }
